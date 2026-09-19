@@ -1,0 +1,28 @@
+## Visual Studio & Rider
+.vs/
+.idea/
+*.user
+*.userosscache
+*.sln.docstates
+*.suo
+
+## Build results
+[Bb]in/
+[Oo]bj/
+[Ll]og/
+[Ll]ogs/
+out/
+
+## User-specific files
+*.user
+*.userosscache
+*.sln.docstates
+
+## Docker / Local settings
+appsettings.Development.json
+appsettings.Local.json
+*.local.json
+
+## OS generated files
+.DS_Store
+Thumbs.db

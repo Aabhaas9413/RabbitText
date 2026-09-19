@@ -1,0 +1,107 @@
+---
+# ─────────────────────────────────────────────────────────────────────────────
+# Notification Receiver — Kubernetes Manifests
+# Includes: ConfigMap, Deployment, Service
+# ─────────────────────────────────────────────────────────────────────────────
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: receiver-config
+  namespace: mango
+  labels:
+    app: notification-receiver
+data:
+  ASPNETCORE_ENVIRONMENT: "Production"
+  ASPNETCORE_HTTP_PORTS: "8080"
+  RabbitMQ__Host: "rabbitmq"
+  RabbitMQ__Username: "guest"
+  RabbitMQ__Password: "guest"
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: notification-receiver
+  namespace: mango
+  labels:
+    app: notification-receiver
+    tier: query
+spec:
+  # NOTE: Keep at 1 replica while using in-memory store to avoid split-brain.
+  # Increase replicas when you replace InMemoryNotificationStore with a shared DB.
+  replicas: 1
+  selector:
+    matchLabels:
+      app: notification-receiver
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  template:
+    metadata:
+      labels:
+        app: notification-receiver
+        tier: query
+    spec:
+      containers:
+        - name: notification-receiver
+          image: mango/notification-receiver:latest
+          imagePullPolicy: Always
+          ports:
+            - name: http
+              containerPort: 8080
+          envFrom:
+            - configMapRef:
+                name: receiver-config
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 20
+            periodSeconds: 30
+            failureThreshold: 3
+          resources:
+            requests:
+              memory: "128Mi"
+              cpu: "100m"
+            limits:
+              memory: "256Mi"
+              cpu: "300m"
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: notification-receiver
+  namespace: mango
+  labels:
+    app: notification-receiver
+spec:
+  selector:
+    app: notification-receiver
+  type: ClusterIP
+  ports:
+    - name: http
+      port: 80
+      targetPort: 8080
+
+---
+# ── Namespace (apply first) ───────────────────────────────────────────────────
+# kubectl apply -f k8s/namespace.yaml
+# Apply this before any other manifests.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: mango
+  labels:
+    project: mango
+    managed-by: kubectl

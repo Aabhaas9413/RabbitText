@@ -1,0 +1,94 @@
+---
+# ─────────────────────────────────────────────────────────────────────────────
+# Notification Sender — Kubernetes Manifests
+# Includes: ConfigMap, Deployment, Service
+# ─────────────────────────────────────────────────────────────────────────────
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: sender-config
+  namespace: mango
+  labels:
+    app: notification-sender
+data:
+  ASPNETCORE_ENVIRONMENT: "Production"
+  ASPNETCORE_HTTP_PORTS: "8080"
+  RabbitMQ__Host: "rabbitmq"        # Matches the ClusterIP Service name
+  RabbitMQ__Username: "guest"
+  RabbitMQ__Password: "guest"       # In production, move password to a Secret
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: notification-sender
+  namespace: mango
+  labels:
+    app: notification-sender
+    tier: command
+spec:
+  replicas: 2   # Scale up safely — sender is stateless
+  selector:
+    matchLabels:
+      app: notification-sender
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  template:
+    metadata:
+      labels:
+        app: notification-sender
+        tier: command
+    spec:
+      containers:
+        - name: notification-sender
+          # Replace with your actual ACR/Docker Hub image
+          image: mango/notification-sender:latest
+          imagePullPolicy: Always
+          ports:
+            - name: http
+              containerPort: 8080
+          envFrom:
+            - configMapRef:
+                name: sender-config
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 20
+            periodSeconds: 30
+            failureThreshold: 3
+          resources:
+            requests:
+              memory: "128Mi"
+              cpu: "100m"
+            limits:
+              memory: "256Mi"
+              cpu: "300m"
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: notification-sender
+  namespace: mango
+  labels:
+    app: notification-sender
+spec:
+  selector:
+    app: notification-sender
+  type: ClusterIP
+  ports:
+    - name: http
+      port: 80
+      targetPort: 8080

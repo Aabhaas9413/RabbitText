@@ -1,0 +1,163 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# azure-pipelines.yml — Mango CQRS Platform
+# Stages: Build → Test → Docker Build & Push → Deploy (dev / prod)
+# ─────────────────────────────────────────────────────────────────────────────
+
+trigger:
+  branches:
+    include:
+      - main
+      - release/*
+  paths:
+    include:
+      - src/**
+      - infra/**
+
+pr:
+  branches:
+    include:
+      - main
+
+variables:
+  buildConfiguration: Release
+  dotnetVersion:      '9.x'
+  imageTag:           '$(Build.BuildId)'
+  acrServiceConnection: 'mango-acr-connection'  # Configure in Azure DevOps Service Connections
+  acrLoginServer:       'mangoacrdev.azurecr.io' # Update to match your ACR name
+  resourceGroup:        'mango-rg-dev'           # Update to your target resource group
+
+stages:
+
+# ─────────────────────────────────────────────────────────────────────────────
+# STAGE 1 — Build & Test
+# ─────────────────────────────────────────────────────────────────────────────
+- stage: Build
+  displayName: 'Build & Test'
+  jobs:
+    - job: BuildAndTest
+      displayName: 'dotnet build + test'
+      pool:
+        vmImage: 'ubuntu-latest'
+      steps:
+        - task: UseDotNet@2
+          displayName: 'Install .NET $(dotnetVersion)'
+          inputs:
+            version: $(dotnetVersion)
+
+        - task: DotNetCoreCLI@2
+          displayName: 'dotnet restore'
+          inputs:
+            command: restore
+            projects: '**/*.csproj'
+
+        - task: DotNetCoreCLI@2
+          displayName: 'dotnet build'
+          inputs:
+            command:   build
+            projects:  '**/*.csproj'
+            arguments: '--configuration $(buildConfiguration) --no-restore'
+
+        # Placeholder — add test projects here when ready
+        # - task: DotNetCoreCLI@2
+        #   displayName: 'dotnet test'
+        #   inputs:
+        #     command: test
+        #     projects: '**/*.Tests.csproj'
+        #     arguments: '--configuration $(buildConfiguration) --no-build --collect:"XPlat Code Coverage"'
+
+# ─────────────────────────────────────────────────────────────────────────────
+# STAGE 2 — Docker Build & Push to ACR
+# ─────────────────────────────────────────────────────────────────────────────
+- stage: Docker
+  displayName: 'Docker Build & Push'
+  dependsOn: Build
+  condition: succeeded()
+  jobs:
+    - job: BuildAndPush
+      displayName: 'Build images and push to ACR'
+      pool:
+        vmImage: 'ubuntu-latest'
+      steps:
+        - task: Docker@2
+          displayName: 'Build & Push — Notification Sender'
+          inputs:
+            command:        buildAndPush
+            containerRegistry: $(acrServiceConnection)
+            repository:     mango/notification-sender
+            dockerfile:     src/NotificationSender/Dockerfile
+            buildContext:   .
+            tags:           |
+              $(imageTag)
+              latest
+
+        - task: Docker@2
+          displayName: 'Build & Push — Notification Receiver'
+          inputs:
+            command:        buildAndPush
+            containerRegistry: $(acrServiceConnection)
+            repository:     mango/notification-receiver
+            dockerfile:     src/NotificationReceiver/Dockerfile
+            buildContext:   .
+            tags:           |
+              $(imageTag)
+              latest
+
+# ─────────────────────────────────────────────────────────────────────────────
+# STAGE 3 — Deploy to Dev via Bicep
+# ─────────────────────────────────────────────────────────────────────────────
+- stage: DeployDev
+  displayName: 'Deploy to Dev'
+  dependsOn: Docker
+  condition: and(succeeded(), eq(variables['Build.SourceBranch'], 'refs/heads/main'))
+  jobs:
+    - deployment: DeployDev
+      displayName: 'Bicep deploy — dev environment'
+      environment: 'mango-dev'
+      pool:
+        vmImage: 'ubuntu-latest'
+      strategy:
+        runOnce:
+          deploy:
+            steps:
+              - task: AzureCLI@2
+                displayName: 'Deploy Bicep — Dev'
+                inputs:
+                  azureSubscription: 'mango-azure-subscription'  # Update with your service connection
+                  scriptType:        bash
+                  scriptLocation:    inlineScript
+                  inlineScript: |
+                    az deployment group create \
+                      --resource-group $(resourceGroup) \
+                      --template-file infra/bicep/main.bicep \
+                      --parameters environment=dev imageTag=$(imageTag) \
+                      --name "deploy-$(imageTag)"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# STAGE 4 — Deploy to Production (manual approval gate)
+# ─────────────────────────────────────────────────────────────────────────────
+- stage: DeployProd
+  displayName: 'Deploy to Production'
+  dependsOn: DeployDev
+  condition: and(succeeded(), startsWith(variables['Build.SourceBranch'], 'refs/heads/release/'))
+  jobs:
+    - deployment: DeployProd
+      displayName: 'Bicep deploy — prod environment'
+      environment: 'mango-prod'   # Configure approval gates in Azure DevOps Environment settings
+      pool:
+        vmImage: 'ubuntu-latest'
+      strategy:
+        runOnce:
+          deploy:
+            steps:
+              - task: AzureCLI@2
+                displayName: 'Deploy Bicep — Prod'
+                inputs:
+                  azureSubscription: 'mango-azure-subscription'
+                  scriptType:        bash
+                  scriptLocation:    inlineScript
+                  inlineScript: |
+                    az deployment group create \
+                      --resource-group mango-rg-prod \
+                      --template-file infra/bicep/main.bicep \
+                      --parameters environment=prod imageTag=$(imageTag) \
+                      --name "deploy-$(imageTag)"

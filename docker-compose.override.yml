@@ -1,0 +1,26 @@
+version: "3.9"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Docker Compose Override — Local Development
+# Extends docker-compose.yml with development-friendly settings.
+# Applied automatically by: docker-compose up
+# ─────────────────────────────────────────────────────────────────────────────
+
+services:
+
+  rabbitmq:
+    # Expose extra ports only for local dev — remove in production
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+
+  notification-sender:
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Development
+    # Mount source for faster local iteration (optional — requires volume support)
+    # volumes:
+    #   - ./src/NotificationSender:/app
+
+  notification-receiver:
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Development
