@@ -1,0 +1,43 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 9.0.x
+
+      - name: Restore and build NotificationSender
+        run: |
+          dotnet restore src/NotificationSender/Mango.NotificationSender.csproj
+          dotnet build src/NotificationSender/Mango.NotificationSender.csproj --configuration Release --no-restore
+
+      - name: Restore and build NotificationReceiver
+        run: |
+          dotnet restore src/NotificationReceiver/Mango.NotificationReceiver.csproj
+          dotnet build src/NotificationReceiver/Mango.NotificationReceiver.csproj --configuration Release --no-restore
+
+      - name: Build service images
+        run: |
+          docker build --file src/NotificationSender/Dockerfile --tag mango/notification-sender:ci .
+          docker build --file src/NotificationReceiver/Dockerfile --tag mango/notification-receiver:ci .
