@@ -17,9 +17,9 @@ jobs:
     environment: dev
     timeout-minutes: 45
     env:
-      AZURE_CLIENT_ID: ${{ vars.AZURE_CLIENT_ID }}
-      AZURE_TENANT_ID: ${{ vars.AZURE_TENANT_ID }}
-      AZURE_SUBSCRIPTION_ID: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+      AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+      AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+      AZURE_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
       RESOURCE_GROUP: mango-rg-dev
       LOCATION: uksouth
       ACR_NAME: mangoacrdev
@@ -30,9 +30,9 @@ jobs:
 
       - name: Validate Azure OIDC settings
         run: |
-          test -n "$AZURE_CLIENT_ID" || { echo "::error::Set AZURE_CLIENT_ID in the GitHub dev environment."; exit 1; }
-          test -n "$AZURE_TENANT_ID" || { echo "::error::Set AZURE_TENANT_ID in the GitHub dev environment."; exit 1; }
-          test -n "$AZURE_SUBSCRIPTION_ID" || { echo "::error::Set AZURE_SUBSCRIPTION_ID in the GitHub dev environment."; exit 1; }
+          test -n "$AZURE_CLIENT_ID" || { echo "::error::Set AZURE_CLIENT_ID in the GitHub dev environment secrets."; exit 1; }
+          test -n "$AZURE_TENANT_ID" || { echo "::error::Set AZURE_TENANT_ID in the GitHub dev environment secrets."; exit 1; }
+          test -n "$AZURE_SUBSCRIPTION_ID" || { echo "::error::Set AZURE_SUBSCRIPTION_ID in the GitHub dev environment secrets."; exit 1; }
 
       - name: Sign in to Azure with OIDC
         uses: azure/login@v2
@@ -41,8 +41,8 @@ jobs:
           tenant-id: ${{ env.AZURE_TENANT_ID }}
           subscription-id: ${{ env.AZURE_SUBSCRIPTION_ID }}
 
-      - name: Create dev resource group
-        run: az group create --name "$RESOURCE_GROUP" --location "$LOCATION" --output none
+      - name: Verify dev resource group exists
+        run: az group show --name "$RESOURCE_GROUP" --output none
 
       - name: Provision Azure Container Registry
         run: |
