@@ -1,0 +1,79 @@
+name: Deploy to Azure Container Apps (dev)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: deploy-rabbittext-dev
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: dev
+    timeout-minutes: 45
+    env:
+      AZURE_CLIENT_ID: ${{ vars.AZURE_CLIENT_ID }}
+      AZURE_TENANT_ID: ${{ vars.AZURE_TENANT_ID }}
+      AZURE_SUBSCRIPTION_ID: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+      RESOURCE_GROUP: mango-rg-dev
+      LOCATION: uksouth
+      ACR_NAME: mangoacrdev
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Validate Azure OIDC settings
+        run: |
+          test -n "$AZURE_CLIENT_ID" || { echo "::error::Set AZURE_CLIENT_ID in the GitHub dev environment."; exit 1; }
+          test -n "$AZURE_TENANT_ID" || { echo "::error::Set AZURE_TENANT_ID in the GitHub dev environment."; exit 1; }
+          test -n "$AZURE_SUBSCRIPTION_ID" || { echo "::error::Set AZURE_SUBSCRIPTION_ID in the GitHub dev environment."; exit 1; }
+
+      - name: Sign in to Azure with OIDC
+        uses: azure/login@v2
+        with:
+          client-id: ${{ env.AZURE_CLIENT_ID }}
+          tenant-id: ${{ env.AZURE_TENANT_ID }}
+          subscription-id: ${{ env.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Create dev resource group
+        run: az group create --name "$RESOURCE_GROUP" --location "$LOCATION" --output none
+
+      - name: Provision Azure Container Registry
+        run: |
+          az deployment group create \
+            --resource-group "$RESOURCE_GROUP" \
+            --template-file infra/bicep/modules/containerRegistry.bicep \
+            --parameters acrName="$ACR_NAME" location="$LOCATION" environment=dev \
+            --output none
+
+      - name: Sign in to Azure Container Registry
+        run: az acr login --name "$ACR_NAME"
+
+      - name: Build and push service images
+        env:
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          ACR_LOGIN_SERVER="$(az acr show --name "$ACR_NAME" --query loginServer --output tsv)"
+          docker build --file src/NotificationSender/Dockerfile \
+            --tag "$ACR_LOGIN_SERVER/mango/notification-sender:$IMAGE_TAG" .
+          docker push "$ACR_LOGIN_SERVER/mango/notification-sender:$IMAGE_TAG"
+          docker build --file src/NotificationReceiver/Dockerfile \
+            --tag "$ACR_LOGIN_SERVER/mango/notification-receiver:$IMAGE_TAG" .
+          docker push "$ACR_LOGIN_SERVER/mango/notification-receiver:$IMAGE_TAG"
+
+      - name: Deploy Container Apps stack
+        env:
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          az deployment group create \
+            --resource-group "$RESOURCE_GROUP" \
+            --template-file infra/bicep/main.bicep \
+            --parameters environment=dev location="$LOCATION" imageTag="$IMAGE_TAG" \
+            --query properties.outputs \
+            --output json
