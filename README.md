@@ -285,19 +285,24 @@ kubectl port-forward service/rabbitmq 15672:15672 -n mango
 
 Deploy to Azure across **dev** and **prod** environments using Azure Pipelines and Bicep.
 
-For the comprehensive step-by-step setup guide, see [docs/AZURE_DEPLOYMENT.md](file:///c:/Users/aabha/source/repos/testDotNet/docs/AZURE_DEPLOYMENT.md).
+For the comprehensive step-by-step setup guide, resource inventory, and cost breakdown, see [`docs/AZURE_DEPLOYMENT.md`](docs/AZURE_DEPLOYMENT.md).
 
-### Quick Pipeline Summary
+### Quick Automated Setup
 
-1. Push this repository to your **Azure Repos** Git remote.
-2. In Azure DevOps **Project Settings → Service Connections**, create an Azure Resource Manager connection named `mango-azure`.
-3. In **Pipelines → Library**, create two variable groups:
-   - `mango-dev` with secret variable `RABBITMQ_PASSWORD`
-   - `mango-prod` with secret variable `RABBITMQ_PASSWORD`
-4. In **Pipelines → Environments**, create:
-   - `mango-dev` (direct automated deployment)
-   - `mango-prod` (add an **Approval check** for manual gating)
-5. Create a new pipeline pointing to the existing [`azure-pipelines.yml`](file:///c:/Users/aabha/source/repos/testDotNet/azure-pipelines.yml).
+Run [`scripts/setup-azure-devops.ps1`](scripts/setup-azure-devops.ps1) to register Azure resource providers, push to Azure Repos, and create the `mango-dev` & `mango-prod` variable groups, environments, and pipeline automatically:
+
+```powershell
+az login
+.\scripts\setup-azure-devops.ps1 `
+  -OrganizationUrl "https://dev.azure.com/<your-org>" `
+  -ProjectName "<your-project>" `
+  -RepoName "<your-repo>" `
+  -SubscriptionId "<your-azure-subscription-id>"
+```
+
+Then in Azure DevOps:
+1. **Project Settings → Service Connections**: Create an Azure Resource Manager (Workload Identity Federation) connection named `mango-azure`.
+2. **Pipelines → Environments → `mango-prod`**: Add an **Approval check** for manual production gating, then run the pipeline (`azure-pipelines.yml`).
 
 ---
 
@@ -309,6 +314,8 @@ testDotNet/
 ├── pipelines/
 │   └── templates/
 │       └── deploy-environment.yml    # Reusable deploy + health check template
+├── scripts/
+│   └── setup-azure-devops.ps1        # One-shot Azure & Azure DevOps setup script
 ├── docs/
 │   └── AZURE_DEPLOYMENT.md           # Detailed Azure & Azure DevOps setup guide
 ├── src/

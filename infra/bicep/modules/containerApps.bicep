@@ -40,6 +40,11 @@ resource logAnalytics 'Microsoft.OperationalInsights/workspaces@2022-10-01' = {
   properties: {
     sku:             { name: 'PerGB2018' }
     retentionInDays: logRetentionInDays
+    // Cap daily ingestion at 0.1 GB (≈3 GB/month max) so usage stays inside
+    // Azure's 5 GB/month free allowance and can never cause a surprise bill.
+    workspaceCapping: {
+      dailyQuotaGb: json('0.1')
+    }
   }
 }
 
@@ -99,14 +104,14 @@ var httpProbes = [
     type:    'Liveness'
     httpGet: { path: '/health/live', port: 8080, scheme: 'HTTP' }
     initialDelaySeconds: 10
-    periodSeconds:       15
+    periodSeconds:       30
     failureThreshold:    3
   }
   {
     type:    'Readiness'
     httpGet: { path: '/health/ready', port: 8080, scheme: 'HTTP' }
     initialDelaySeconds: 10
-    periodSeconds:       10
+    periodSeconds:       30
     failureThreshold:    6
   }
 ]
@@ -137,10 +142,11 @@ resource rabbitApp 'Microsoft.App/containerApps@2024-03-01' = {
       containers: [
         {
           name:  'rabbitmq'
-          image: 'docker.io/library/rabbitmq:3.13-management'
+          // Alpine image without the unused management web UI — smaller & uses half the RAM
+          image: 'docker.io/library/rabbitmq:3.13-alpine'
           resources: {
-            cpu:    json('0.5')
-            memory: '1Gi'
+            cpu:    json('0.25')
+            memory: '0.5Gi'
           }
           env: [
             { name: 'RABBITMQ_DEFAULT_USER', value: rabbitmqUsername }
@@ -156,7 +162,7 @@ resource rabbitApp 'Microsoft.App/containerApps@2024-03-01' = {
             {
               type:          'Liveness'
               tcpSocket:     { port: 5672 }
-              periodSeconds: 20
+              periodSeconds: 30
             }
           ]
         }

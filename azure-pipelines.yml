@@ -19,6 +19,7 @@ trigger:
     exclude:
       - README.md
       - docs/*
+      - scripts/*
       - k8s/*
 
 pr:
@@ -153,6 +154,14 @@ stages:
               --label "org.opencontainers.image.source=$(Build.Repository.Uri)" \
               --tag "$image" .
             docker push "$image"
+
+            # Keep only the 10 newest tags per repository so ACR Basic stays well under its 10 GB cap
+            OLD_TAGS=$(az acr repository show-tags --name "$ACR_NAME" --repository "mango/$repo" \
+              --orderby time_desc --output tsv | tail -n +11 || true)
+            for old in $OLD_TAGS; do
+              echo "Pruning old tag mango/$repo:$old"
+              az acr repository delete --name "$ACR_NAME" --image "mango/$repo:$old" --yes || true
+            done
           done
 
           # Hand the registry name to the deploy stages

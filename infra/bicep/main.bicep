@@ -34,21 +34,21 @@ param rabbitmqUsername string = 'mango'
 @minLength(12)
 param rabbitmqPassword string
 
-// ─── Per-environment settings ────────────────────────────────────────────────
+// ─── Per-environment settings (tuned for minimal Azure cost) ─────────────────
 var envConfig = {
   dev: {
-    senderMinReplicas:  1
+    senderMinReplicas:  0   // Scales to 0 when idle ($0 cost); wakes on HTTP request
     senderMaxReplicas:  2
     swaggerEnabled:     'true'
-    logRetentionInDays: 30
+    logRetentionInDays: 30  // 30 days is free in Log Analytics
     vnetAddressPrefix:  '10.20.0.0/16'
     acaSubnetPrefix:    '10.20.0.0/23'
   }
   prod: {
-    senderMinReplicas:  1
+    senderMinReplicas:  0   // Scales to 0 when idle; change to 1 if you want zero cold-start
     senderMaxReplicas:  5
     swaggerEnabled:     'false'
-    logRetentionInDays: 90
+    logRetentionInDays: 30  // Keep at 30 days to stay in the free retention tier
     vnetAddressPrefix:  '10.30.0.0/16'
     acaSubnetPrefix:    '10.30.0.0/23'
   }

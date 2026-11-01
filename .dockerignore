@@ -25,6 +25,7 @@ data/
 infra/
 k8s/
 pipelines/
+scripts/
 docs/
 azure-pipelines.yml
 docker-compose*.yml
