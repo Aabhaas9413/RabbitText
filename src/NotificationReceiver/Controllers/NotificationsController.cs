@@ -1,9 +1,9 @@
 using MediatR;
 using Microsoft.AspNetCore.Mvc;
-using Mango.NotificationReceiver.Queries;
-using Mango.NotificationReceiver.Services;
+using Alpha.NotificationReceiver.Queries;
+using Alpha.NotificationReceiver.Services;
 
-namespace Mango.NotificationReceiver.Controllers;
+namespace Alpha.NotificationReceiver.Controllers;
 
 /// <summary>
 /// Read-only API for querying received notifications (Query Side of CQRS).

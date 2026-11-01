@@ -1,6 +1,6 @@
 {
   "profiles": {
-    "Mango.NotificationReceiver": {
+    "Alpha.NotificationReceiver": {
       "commandName": "Project",
       "launchBrowser": true,
       "environmentVariables": {

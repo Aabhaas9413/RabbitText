@@ -1,7 +1,7 @@
-using Mango.Shared.Abstractions;
-using Mango.NotificationReceiver.Services;
+using Alpha.Shared.Abstractions;
+using Alpha.NotificationReceiver.Services;
 
-namespace Mango.NotificationReceiver.Queries;
+namespace Alpha.NotificationReceiver.Queries;
 
 /// <summary>
 /// CQRS Query: returns all notifications that have been received.

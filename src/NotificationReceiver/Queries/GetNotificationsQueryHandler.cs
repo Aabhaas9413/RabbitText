@@ -1,7 +1,7 @@
 using MediatR;
-using Mango.NotificationReceiver.Services;
+using Alpha.NotificationReceiver.Services;
 
-namespace Mango.NotificationReceiver.Queries;
+namespace Alpha.NotificationReceiver.Queries;
 
 /// <summary>
 /// Handles <see cref="GetAllNotificationsQuery"/> — delegates to the notification store.

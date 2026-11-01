@@ -1,6 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 
-namespace Mango.NotificationReceiver.Data;
+namespace Alpha.NotificationReceiver.Data;
 
 /// <summary>
 /// EF Core DbContext for NotificationReceiver backed by SQLite.

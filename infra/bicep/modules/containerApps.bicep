@@ -198,7 +198,7 @@ resource senderApp 'Microsoft.App/containerApps@2024-03-01' = {
       containers: [
         {
           name:  'notification-sender'
-          image: '${acr.properties.loginServer}/mango/notification-sender:${imageTag}'
+          image: '${acr.properties.loginServer}/alpha/notification-sender:${imageTag}'
           resources: {
             cpu:    json('0.25')
             memory: '0.5Gi'
@@ -246,7 +246,7 @@ resource receiverApp 'Microsoft.App/containerApps@2024-03-01' = {
       containers: [
         {
           name:  'notification-receiver'
-          image: '${acr.properties.loginServer}/mango/notification-receiver:${imageTag}'
+          image: '${acr.properties.loginServer}/alpha/notification-receiver:${imageTag}'
           resources: {
             cpu:    json('0.25')
             memory: '0.5Gi'

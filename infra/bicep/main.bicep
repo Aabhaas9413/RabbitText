@@ -1,6 +1,6 @@
 // ─────────────────────────────────────────────────────────────────────────────
-// main.bicep — Mango Platform, per-environment infrastructure
-// Deploys into the environment resource group (mango-rg-dev / mango-rg-prod):
+// main.bicep — Alpha Platform, per-environment infrastructure
+// Deploys into the environment resource group (alpha-rg-dev / alpha-rg-prod):
 //   VNet → Log Analytics → Container Apps Environment → RabbitMQ, Sender, Receiver
 // Images are pulled from the SHARED registry deployed by shared.bicep.
 // ─────────────────────────────────────────────────────────────────────────────
@@ -15,7 +15,7 @@ param environmentName string
 param location string = resourceGroup().location
 
 @description('Project name prefix for resource naming.')
-param projectName string = 'mango'
+param projectName string = 'alpha'
 
 @description('Container image tag to deploy (the pipeline passes the build id).')
 param imageTag string
@@ -27,7 +27,7 @@ param acrName string
 param acrResourceGroup string
 
 @description('RabbitMQ user created on first start of the broker.')
-param rabbitmqUsername string = 'mango'
+param rabbitmqUsername string = 'alpha'
 
 @description('RabbitMQ password. Supplied by the pipeline from a secret variable — never commit it.')
 @secure()

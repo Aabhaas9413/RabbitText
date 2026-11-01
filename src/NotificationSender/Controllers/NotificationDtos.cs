@@ -1,4 +1,4 @@
-namespace Mango.NotificationSender.Controllers;
+namespace Alpha.NotificationSender.Controllers;
 
 /// <summary>
 /// Request DTO for the POST /api/notifications endpoint.

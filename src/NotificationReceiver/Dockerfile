@@ -4,21 +4,21 @@
 FROM mcr.microsoft.com/dotnet/sdk:9.0 AS build
 WORKDIR /src
 
-COPY ["src/Shared/Mango.Shared/Mango.Shared.csproj",                         "src/Shared/Mango.Shared/"]
-COPY ["src/NotificationReceiver/Mango.NotificationReceiver.csproj",           "src/NotificationReceiver/"]
+COPY ["src/Shared/Alpha.Shared/Alpha.Shared.csproj",                         "src/Shared/Alpha.Shared/"]
+COPY ["src/NotificationReceiver/Alpha.NotificationReceiver.csproj",           "src/NotificationReceiver/"]
 
-RUN dotnet restore "src/NotificationReceiver/Mango.NotificationReceiver.csproj"
+RUN dotnet restore "src/NotificationReceiver/Alpha.NotificationReceiver.csproj"
 
 COPY . .
 
 WORKDIR "/src/src/NotificationReceiver"
-RUN dotnet build "Mango.NotificationReceiver.csproj" -c Release -o /app/build
+RUN dotnet build "Alpha.NotificationReceiver.csproj" -c Release -o /app/build
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Stage 2: Publish
 # ──────────────────────────────────────────────────────────────────────────────
 FROM build AS publish
-RUN dotnet publish "Mango.NotificationReceiver.csproj" -c Release -o /app/publish \
+RUN dotnet publish "Alpha.NotificationReceiver.csproj" -c Release -o /app/publish \
     /p:UseAppHost=false \
     /p:GenerateDocumentationFile=true
 
@@ -35,4 +35,4 @@ EXPOSE 8080
 EXPOSE 8081
 
 COPY --from=publish /app/publish .
-ENTRYPOINT ["dotnet", "Mango.NotificationReceiver.dll"]
+ENTRYPOINT ["dotnet", "Alpha.NotificationReceiver.dll"]

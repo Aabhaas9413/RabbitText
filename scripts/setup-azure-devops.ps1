@@ -1,14 +1,14 @@
 <#
 .SYNOPSIS
-    One-shot automation script to configure Azure and Azure DevOps for Mango (dev + prod).
+    One-shot automation script to configure Azure and Azure DevOps for Alpha (dev + prod).
 
 .DESCRIPTION
     Automates all one-time setup steps described in docs/AZURE_DEPLOYMENT.md:
       1. Registers required Azure Resource Providers on your subscription
       2. Adds the Azure Repos Git remote ('azure') and pushes the 'main' branch
-      3. Creates/updates 'mango-dev' and 'mango-prod' Variable Groups with secret RABBITMQ_PASSWORD
-      4. Creates 'mango-dev' and 'mango-prod' Environments in Azure DevOps
-      5. Creates the 'Mango-CI-CD' pipeline from /azure-pipelines.yml
+      3. Creates/updates 'alpha-dev' and 'alpha-prod' Variable Groups with secret RABBITMQ_PASSWORD
+      4. Creates 'alpha-dev' and 'alpha-prod' Environments in Azure DevOps
+      5. Creates the 'Alpha-CI-CD' pipeline from /azure-pipelines.yml
 
 .EXAMPLE
     .\scripts\setup-azure-devops.ps1 `
@@ -33,7 +33,7 @@ param(
     [string]$SubscriptionId,
 
     [Parameter(Mandatory = $false, HelpMessage = "Pipeline name to create in Azure DevOps")]
-    [string]$PipelineName = "Mango-CI-CD"
+    [string]$PipelineName = "Alpha-CI-CD"
 )
 
 $ErrorActionPreference = "Stop"
@@ -76,9 +76,9 @@ if ($existingRemotes -contains "azure") {
 Write-Host "Pushing 'main' to $azureRepoUrl ..."
 git push -u azure main
 
-Write-Host "`n=== 4. Creating Variable Groups (mango-dev & mango-prod) ===" -ForegroundColor Cyan
+Write-Host "`n=== 4. Creating Variable Groups (alpha-dev & alpha-prod) ===" -ForegroundColor Cyan
 foreach ($envName in @("dev", "prod")) {
-    $vgName = "mango-$envName"
+    $vgName = "alpha-$envName"
     $existingVgId = az pipelines variable-group list --group-name $vgName --query "[0].id" -o tsv
     $password = New-RandomPassword -Length 24
 
@@ -87,7 +87,7 @@ foreach ($envName in @("dev", "prod")) {
         # Create group with a placeholder then convert to secret variable
         $vgId = az pipelines variable-group create `
             --name $vgName `
-            --description "Secrets for Mango $envName environment" `
+            --description "Secrets for Alpha $envName environment" `
             --authorize true `
             --variables INIT_PLACEHOLDER=true `
             --query id -o tsv
@@ -107,7 +107,7 @@ foreach ($envName in @("dev", "prod")) {
     }
 }
 
-Write-Host "`n=== 5. Creating Azure DevOps Environments (mango-dev & mango-prod) ===" -ForegroundColor Cyan
+Write-Host "`n=== 5. Creating Azure DevOps Environments (alpha-dev & alpha-prod) ===" -ForegroundColor Cyan
 # 499b84ac-1321-427f-aa17-267ca6975798 is the standard Azure DevOps Entra resource ID
 $adoResource = "499b84ac-1321-427f-aa17-267ca6975798"
 $existingEnvs = az rest `
@@ -116,12 +116,12 @@ $existingEnvs = az rest `
     --resource $adoResource `
     --query "value[].name" -o tsv
 
-foreach ($adoEnv in @("mango-dev", "mango-prod")) {
+foreach ($adoEnv in @("alpha-dev", "alpha-prod")) {
     if ($existingEnvs -contains $adoEnv) {
         Write-Host "Environment '$adoEnv' already exists — skipping."
     } else {
         Write-Host "Creating environment '$adoEnv'..."
-        $body = @{ name = $adoEnv; description = "Mango $adoEnv environment" } | ConvertTo-Json -Compress
+        $body = @{ name = $adoEnv; description = "Alpha $adoEnv environment" } | ConvertTo-Json -Compress
         az rest `
             --method post `
             --uri "$orgTrimmed/$encodedProject/_apis/distributedtask/environments?api-version=7.1-preview.1" `
@@ -136,7 +136,7 @@ $existingPipelineId = az pipelines list --name $PipelineName --query "[0].id" -o
 if ([string]::IsNullOrWhiteSpace($existingPipelineId)) {
     az pipelines create `
         --name $PipelineName `
-        --description "Mango CQRS CI/CD (Build -> Dev -> Prod)" `
+        --description "Alpha CQRS CI/CD (Build -> Dev -> Prod)" `
         --repository $RepoName `
         --repository-type tfsgit `
         --branch main `
@@ -150,8 +150,8 @@ if ([string]::IsNullOrWhiteSpace($existingPipelineId)) {
 Write-Host "`n=== Setup Complete! ===" -ForegroundColor Green
 Write-Host "Remaining 2 manual checks in Azure DevOps UI (takes ~60 seconds):" -ForegroundColor Yellow
 Write-Host "  1. Project Settings -> Service connections -> New service connection -> Azure Resource Manager"
-Write-Host "     -> Workload identity federation (automatic) -> Scope: Subscription -> Name: 'mango-azure'"
+Write-Host "     -> Workload identity federation (automatic) -> Scope: Subscription -> Name: 'alpha-azure'"
 Write-Host "     -> Check 'Grant access permission to all pipelines'."
-Write-Host "  2. Pipelines -> Environments -> 'mango-prod' -> Approvals and checks -> + -> Approvals"
+Write-Host "  2. Pipelines -> Environments -> 'alpha-prod' -> Approvals and checks -> + -> Approvals"
 Write-Host "     -> Add yourself as approver, then run the '$PipelineName' pipeline!"
 

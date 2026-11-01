@@ -1,10 +1,10 @@
 using MassTransit;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.EntityFrameworkCore;
-using Mango.NotificationReceiver.Consumers;
-using Mango.NotificationReceiver.Data;
-using Mango.NotificationReceiver.Queries;
-using Mango.NotificationReceiver.Services;
+using Alpha.NotificationReceiver.Consumers;
+using Alpha.NotificationReceiver.Data;
+using Alpha.NotificationReceiver.Queries;
+using Alpha.NotificationReceiver.Services;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -15,7 +15,7 @@ builder.Services.AddSwaggerGen(options =>
 {
     options.SwaggerDoc("v1", new()
     {
-        Title       = "Mango – Notification Receiver API",
+        Title       = "Alpha – Notification Receiver API",
         Version     = "v1",
         Description = "CQRS Query-side microservice. Consumes notification events from RabbitMQ and exposes them via a read API."
     });

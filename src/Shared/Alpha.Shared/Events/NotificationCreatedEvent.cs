@@ -1,4 +1,4 @@
-namespace Mango.Shared.Events;
+namespace Alpha.Shared.Events;
 
 /// <summary>
 /// Integration event published to RabbitMQ when a notification is created on the Sender side.

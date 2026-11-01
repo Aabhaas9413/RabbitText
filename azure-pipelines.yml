@@ -1,5 +1,5 @@
 # ─────────────────────────────────────────────────────────────────────────────
-# azure-pipelines.yml — Mango CQRS Platform (Azure DevOps, multi-stage)
+# azure-pipelines.yml — Alpha CQRS Platform (Azure DevOps, multi-stage)
 #
 #   PR to main  : CI only (build, test, Bicep lint, Docker build — no push)
 #   Push to main: CI → push images → Deploy DEV → [manual approval] → Deploy PROD
@@ -29,10 +29,10 @@ pr:
 
 variables:
   # ── Change these if you used different names during setup ──────────────────
-  azureServiceConnection: 'mango-azure'      # ARM service connection (Project settings → Service connections)
+  azureServiceConnection: 'alpha-azure'      # ARM service connection (Project settings → Service connections)
   location:               'uksouth'
-  projectName:            'mango'
-  sharedResourceGroup:    'mango-rg-shared'  # holds the shared container registry
+  projectName:            'alpha'
+  sharedResourceGroup:    'alpha-rg-shared'  # holds the shared container registry
   # ───────────────────────────────────────────────────────────────────────────
   buildConfiguration: 'Release'
   imageTag:           '$(Build.BuildId)'
@@ -103,8 +103,8 @@ stages:
       fetchDepth: 1
     - script: |
         set -euo pipefail
-        docker build --file src/NotificationSender/Dockerfile   --tag mango/notification-sender:pr .
-        docker build --file src/NotificationReceiver/Dockerfile --tag mango/notification-receiver:pr .
+        docker build --file src/NotificationSender/Dockerfile   --tag alpha/notification-sender:pr .
+        docker build --file src/NotificationReceiver/Dockerfile --tag alpha/notification-receiver:pr .
       displayName: 'docker build'
 
   # ── main: ensure shared ACR exists, then build + push once ─────────────────
@@ -146,7 +146,7 @@ stages:
 
           for svc in notification-sender:NotificationSender notification-receiver:NotificationReceiver; do
             repo="${svc%%:*}"; dir="${svc##*:}"
-            image="$ACR_LOGIN_SERVER/mango/$repo:$(imageTag)"
+            image="$ACR_LOGIN_SERVER/alpha/$repo:$(imageTag)"
             echo "== Building $image"
             docker build \
               --file "src/$dir/Dockerfile" \
@@ -156,11 +156,11 @@ stages:
             docker push "$image"
 
             # Keep only the 10 newest tags per repository so ACR Basic stays well under its 10 GB cap
-            OLD_TAGS=$(az acr repository show-tags --name "$ACR_NAME" --repository "mango/$repo" \
+            OLD_TAGS=$(az acr repository show-tags --name "$ACR_NAME" --repository "alpha/$repo" \
               --orderby time_desc --output tsv | tail -n +11 || true)
             for old in $OLD_TAGS; do
-              echo "Pruning old tag mango/$repo:$old"
-              az acr repository delete --name "$ACR_NAME" --image "mango/$repo:$old" --yes || true
+              echo "Pruning old tag alpha/$repo:$old"
+              az acr repository delete --name "$ACR_NAME" --image "alpha/$repo:$old" --yes || true
             done
           done
 
@@ -180,13 +180,13 @@ stages:
   - template: pipelines/templates/deploy-environment.yml
     parameters:
       environmentName: dev
-      adoEnvironment:  mango-dev
-      resourceGroup:   mango-rg-dev
-      variableGroup:   mango-dev
+      adoEnvironment:  alpha-dev
+      resourceGroup:   alpha-rg-dev
+      variableGroup:   alpha-dev
       runEndToEndTest: true
 
 # ═════════════════════════════════════════════════════════════════════════════
-# STAGE 3 — Deploy PROD (waits for approval on the 'mango-prod' environment)
+# STAGE 3 — Deploy PROD (waits for approval on the 'alpha-prod' environment)
 # ═════════════════════════════════════════════════════════════════════════════
 - stage: Deploy_Prod
   displayName: 'Deploy → prod'
@@ -200,7 +200,7 @@ stages:
   - template: pipelines/templates/deploy-environment.yml
     parameters:
       environmentName: prod
-      adoEnvironment:  mango-prod
-      resourceGroup:   mango-rg-prod
-      variableGroup:   mango-prod
+      adoEnvironment:  alpha-prod
+      resourceGroup:   alpha-rg-prod
+      variableGroup:   alpha-prod
       runEndToEndTest: false   # health checks only — don't write test data into prod

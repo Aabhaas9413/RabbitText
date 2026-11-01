@@ -1,4 +1,4 @@
-namespace Mango.Shared.Abstractions;
+namespace Alpha.Shared.Abstractions;
 
 /// <summary>
 /// Marker interface for CQRS Queries. Queries are read-only and never mutate state.

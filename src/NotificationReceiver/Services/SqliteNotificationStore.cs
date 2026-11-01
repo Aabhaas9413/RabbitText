@@ -1,7 +1,7 @@
-using Mango.NotificationReceiver.Data;
+using Alpha.NotificationReceiver.Data;
 using Microsoft.EntityFrameworkCore;
 
-namespace Mango.NotificationReceiver.Services;
+namespace Alpha.NotificationReceiver.Services;
 
 /// <summary>
 /// EF Core + SQLite implementation of <see cref="INotificationStore"/>.

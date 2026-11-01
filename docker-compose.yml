@@ -1,5 +1,5 @@
 # ─────────────────────────────────────────────────────────────────────────────
-# Mango CQRS Notification Platform — Docker Compose
+# Alpha CQRS Notification Platform — Docker Compose
 # Topology: RabbitMQ → NotificationSender (Command) → NotificationReceiver (Query)
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -8,8 +8,8 @@ services:
   # ── RabbitMQ ──────────────────────────────────────────────────────────────
   rabbitmq:
     image: rabbitmq:3.13-management
-    container_name: mango-rabbitmq
-    hostname: mango-rabbitmq
+    container_name: alpha-rabbitmq
+    hostname: alpha-rabbitmq
     environment:
       RABBITMQ_DEFAULT_USER: guest
       RABBITMQ_DEFAULT_PASS: guest
@@ -25,15 +25,15 @@ services:
       retries: 10
       start_period: 30s
     networks:
-      - mango-network
+      - alpha-network
 
   # ── Notification Sender (Command Side) ────────────────────────────────────
   notification-sender:
     build:
       context: .
       dockerfile: src/NotificationSender/Dockerfile
-    container_name: mango-notification-sender
-    image: mango/notification-sender:latest
+    container_name: alpha-notification-sender
+    image: alpha/notification-sender:latest
     environment:
       - ASPNETCORE_ENVIRONMENT=Docker
       - ASPNETCORE_HTTP_PORTS=8080
@@ -52,15 +52,15 @@ services:
       retries: 5
       start_period: 20s
     networks:
-      - mango-network
+      - alpha-network
 
   # ── Notification Receiver (Query Side) ────────────────────────────────────
   notification-receiver:
     build:
       context: .
       dockerfile: src/NotificationReceiver/Dockerfile
-    container_name: mango-notification-receiver
-    image: mango/notification-receiver:latest
+    container_name: alpha-notification-receiver
+    image: alpha/notification-receiver:latest
     environment:
       - ASPNETCORE_ENVIRONMENT=Docker
       - ASPNETCORE_HTTP_PORTS=8080
@@ -82,7 +82,7 @@ services:
       retries: 5
       start_period: 20s
     networks:
-      - mango-network
+      - alpha-network
 
 # ─── Shared Volumes ───────────────────────────────────────────────────────────
 volumes:
@@ -91,5 +91,5 @@ volumes:
 
 # ─── Shared Network ───────────────────────────────────────────────────────────
 networks:
-  mango-network:
+  alpha-network:
     driver: bridge

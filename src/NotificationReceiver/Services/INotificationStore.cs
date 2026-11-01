@@ -1,4 +1,4 @@
-namespace Mango.NotificationReceiver.Services;
+namespace Alpha.NotificationReceiver.Services;
 
 /// <summary>
 /// Represents a notification received from the RabbitMQ queue.

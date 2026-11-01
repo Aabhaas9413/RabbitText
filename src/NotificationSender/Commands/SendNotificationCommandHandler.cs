@@ -1,8 +1,8 @@
 using MassTransit;
 using MediatR;
-using Mango.Shared.Events;
+using Alpha.Shared.Events;
 
-namespace Mango.NotificationSender.Commands;
+namespace Alpha.NotificationSender.Commands;
 
 /// <summary>
 /// CQRS Command Handler: processes <see cref="SendNotificationCommand"/>.

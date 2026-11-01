@@ -4,8 +4,8 @@
     <TargetFramework>net9.0</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
-    <RootNamespace>Mango.Shared</RootNamespace>
-    <AssemblyName>Mango.Shared</AssemblyName>
+    <RootNamespace>Alpha.Shared</RootNamespace>
+    <AssemblyName>Alpha.Shared</AssemblyName>
   </PropertyGroup>
 
   <ItemGroup>

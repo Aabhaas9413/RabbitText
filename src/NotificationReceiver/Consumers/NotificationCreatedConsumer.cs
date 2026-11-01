@@ -1,8 +1,8 @@
 using MassTransit;
-using Mango.NotificationReceiver.Services;
-using Mango.Shared.Events;
+using Alpha.NotificationReceiver.Services;
+using Alpha.Shared.Events;
 
-namespace Mango.NotificationReceiver.Consumers;
+namespace Alpha.NotificationReceiver.Consumers;
 
 /// <summary>
 /// MassTransit consumer for <see cref="NotificationCreatedEvent"/>.

@@ -4,8 +4,8 @@
     <TargetFramework>net9.0</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
-    <RootNamespace>Mango.NotificationSender</RootNamespace>
-    <AssemblyName>Mango.NotificationSender</AssemblyName>
+    <RootNamespace>Alpha.NotificationSender</RootNamespace>
+    <AssemblyName>Alpha.NotificationSender</AssemblyName>
     <UserSecretsId>notification-sender-secrets</UserSecretsId>
   </PropertyGroup>
 
@@ -18,7 +18,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\Shared\Mango.Shared\Mango.Shared.csproj" />
+    <ProjectReference Include="..\Shared\Alpha.Shared\Alpha.Shared.csproj" />
   </ItemGroup>
 
 </Project>

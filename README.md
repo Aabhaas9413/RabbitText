@@ -1,4 +1,4 @@
-# 🐇 Mango — CQRS Notification Platform
+# 🐇 Alpha — CQRS Notification Platform
 
 A production-grade **CQRS microservices** architecture built on **.NET 9**, **MediatR**, **MassTransit**, and **RabbitMQ**. Two independent microservices communicate asynchronously through RabbitMQ, fully containerised with Docker Compose and ready for Kubernetes and Azure Container Apps.
 
@@ -95,9 +95,9 @@ You should see all three containers as `healthy`:
 
 ```
 NAME                        STATUS      PORTS
-mango-rabbitmq              healthy     0.0.0.0:5672->5672, 0.0.0.0:15672->15672
-mango-notification-sender   healthy     0.0.0.0:5001->8080
-mango-notification-receiver healthy     0.0.0.0:5002->8080
+alpha-rabbitmq              healthy     0.0.0.0:5672->5672, 0.0.0.0:15672->15672
+alpha-notification-sender   healthy     0.0.0.0:5001->8080
+alpha-notification-receiver healthy     0.0.0.0:5002->8080
 ```
 
 ### 4. Access the services
@@ -255,28 +255,28 @@ kubectl apply -f k8s/receiver-deployment.yaml  # Contains the Namespace definiti
 kubectl apply -f k8s/rabbitmq-deployment.yaml
 
 # 3. Wait for RabbitMQ to be ready
-kubectl rollout status statefulset/rabbitmq -n mango
+kubectl rollout status statefulset/rabbitmq -n alpha
 
 # 4. Deploy microservices
 kubectl apply -f k8s/sender-deployment.yaml
 kubectl apply -f k8s/receiver-deployment.yaml
 
 # 5. Verify
-kubectl get pods -n mango
-kubectl get services -n mango
+kubectl get pods -n alpha
+kubectl get services -n alpha
 ```
 
 ### Port-forward for local testing
 
 ```bash
 # Sender
-kubectl port-forward service/notification-sender 5001:80 -n mango
+kubectl port-forward service/notification-sender 5001:80 -n alpha
 
 # Receiver
-kubectl port-forward service/notification-receiver 5002:80 -n mango
+kubectl port-forward service/notification-receiver 5002:80 -n alpha
 
 # RabbitMQ Management UI
-kubectl port-forward service/rabbitmq 15672:15672 -n mango
+kubectl port-forward service/rabbitmq 15672:15672 -n alpha
 ```
 
 ---
@@ -289,7 +289,7 @@ For the comprehensive step-by-step setup guide, resource inventory, and cost bre
 
 ### Quick Automated Setup
 
-Run [`scripts/setup-azure-devops.ps1`](scripts/setup-azure-devops.ps1) to register Azure resource providers, push to Azure Repos, and create the `mango-dev` & `mango-prod` variable groups, environments, and pipeline automatically:
+Run [`scripts/setup-azure-devops.ps1`](scripts/setup-azure-devops.ps1) to register Azure resource providers, push to Azure Repos, and create the `alpha-dev` & `alpha-prod` variable groups, environments, and pipeline automatically:
 
 ```powershell
 az login
@@ -301,8 +301,8 @@ az login
 ```
 
 Then in Azure DevOps:
-1. **Project Settings → Service Connections**: Create an Azure Resource Manager (Workload Identity Federation) connection named `mango-azure`.
-2. **Pipelines → Environments → `mango-prod`**: Add an **Approval check** for manual production gating, then run the pipeline (`azure-pipelines.yml`).
+1. **Project Settings → Service Connections**: Create an Azure Resource Manager (Workload Identity Federation) connection named `alpha-azure`.
+2. **Pipelines → Environments → `alpha-prod`**: Add an **Approval check** for manual production gating, then run the pipeline (`azure-pipelines.yml`).
 
 ---
 
@@ -319,7 +319,7 @@ testDotNet/
 ├── docs/
 │   └── AZURE_DEPLOYMENT.md           # Detailed Azure & Azure DevOps setup guide
 ├── src/
-│   ├── Shared/Mango.Shared/          # Shared contracts (events, CQRS abstractions)
+│   ├── Shared/Alpha.Shared/          # Shared contracts (events, CQRS abstractions)
 │   │   ├── Abstractions/             # ICommand<T>, IQuery<T>
 │   │   └── Events/                   # NotificationCreatedEvent
 │   ├── NotificationSender/           # Command-side microservice (Port 5001)

@@ -1,6 +1,6 @@
 using System.Collections.Concurrent;
 
-namespace Mango.NotificationReceiver.Services;
+namespace Alpha.NotificationReceiver.Services;
 
 /// <summary>
 /// Thread-safe in-memory implementation of <see cref="INotificationStore"/>.

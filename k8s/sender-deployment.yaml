@@ -8,7 +8,7 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: sender-config
-  namespace: mango
+  namespace: alpha
   labels:
     app: notification-sender
 data:
@@ -23,7 +23,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: notification-sender
-  namespace: mango
+  namespace: alpha
   labels:
     app: notification-sender
     tier: command
@@ -46,7 +46,7 @@ spec:
       containers:
         - name: notification-sender
           # Replace with your actual ACR/Docker Hub image
-          image: mango/notification-sender:latest
+          image: alpha/notification-sender:latest
           imagePullPolicy: Always
           ports:
             - name: http
@@ -81,7 +81,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: notification-sender
-  namespace: mango
+  namespace: alpha
   labels:
     app: notification-sender
 spec:

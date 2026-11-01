@@ -1,6 +1,6 @@
-using Mango.Shared.Abstractions;
+using Alpha.Shared.Abstractions;
 
-namespace Mango.NotificationSender.Commands;
+namespace Alpha.NotificationSender.Commands;
 
 /// <summary>
 /// CQRS Command: instructs the system to create and send a new notification.

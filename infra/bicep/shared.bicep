@@ -1,7 +1,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // shared.bicep — Resources shared by every environment
 // Deployed by the pipeline's Build stage into the shared resource group
-// (default: mango-rg-shared) BEFORE images are pushed.
+// (default: alpha-rg-shared) BEFORE images are pushed.
 // ─────────────────────────────────────────────────────────────────────────────
 
 targetScope = 'resourceGroup'
@@ -10,7 +10,7 @@ targetScope = 'resourceGroup'
 param location string = resourceGroup().location
 
 @description('Project name prefix for resource naming.')
-param projectName string = 'mango'
+param projectName string = 'alpha'
 
 @description('ACR SKU.')
 @allowed(['Basic', 'Standard', 'Premium'])

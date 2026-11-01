@@ -1,6 +1,6 @@
 using System.ComponentModel.DataAnnotations;
 
-namespace Mango.NotificationReceiver.Data;
+namespace Alpha.NotificationReceiver.Data;
 
 /// <summary>
 /// Persistent EF Core entity tracking notification events by Correlation ID in SQLite.

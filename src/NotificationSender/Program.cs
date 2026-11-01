@@ -1,5 +1,5 @@
 using MassTransit;
-using Mango.NotificationSender.Commands;
+using Alpha.NotificationSender.Commands;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -11,7 +11,7 @@ builder.Services.AddSwaggerGen(options =>
 {
     options.SwaggerDoc("v1", new()
     {
-        Title       = "Mango – Notification Sender API",
+        Title       = "Alpha – Notification Sender API",
         Version     = "v1",
         Description = "CQRS Command-side microservice. Accepts notification commands and publishes integration events to RabbitMQ."
     });

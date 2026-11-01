@@ -1,25 +1,25 @@
-# ☁️ Deploying Mango to Azure with Azure DevOps (dev + prod)
+# ☁️ Deploying Alpha to Azure with Azure DevOps (dev + prod)
 
-This is the complete, production-ready guide for deploying the **Mango CQRS Platform** to Azure across **dev** and **prod** environments using **Azure Repos**, **Azure Pipelines**, and **Bicep** — tuned for **maximum automation** and **minimal Azure cost**.
+This is the complete, production-ready guide for deploying the **Alpha CQRS Platform** to Azure across **dev** and **prod** environments using **Azure Repos**, **Azure Pipelines**, and **Bicep** — tuned for **maximum automation** and **minimal Azure cost**.
 
 ---
 
 ## 1. Target Architecture & Azure Resource Inventory
 
 ```
-                         ┌──────────────── mango-rg-shared ────────────────┐
-  Azure Pipelines ──push─▶  Azure Container Registry (mangoacr<unique>)     │
+                         ┌──────────────── alpha-rg-shared ────────────────┐
+  Azure Pipelines ──push─▶  Azure Container Registry (alphaacr<unique>)     │
                          └──────────────────────┬──────────────────────────┘
                                                 │ same image tag promoted
                     ┌───────────────────────────┴───────────────────────────┐
                     ▼                                                       ▼
- ┌──────────── mango-rg-dev ────────────┐          ┌──────────── mango-rg-prod ───────────┐
+ ┌──────────── alpha-rg-dev ────────────┐          ┌──────────── alpha-rg-prod ───────────┐
  │ VNet (10.20.0.0/16)                   │          │ VNet (10.30.0.0/16)                   │
  │ Log Analytics (30d, 0.1 GB/day cap)   │          │ Log Analytics (30d, 0.1 GB/day cap)   │
  │ Container Apps Environment            │          │ Container Apps Environment            │
- │  ├─ mango-sender-dev    (0–2 replicas)│          │  ├─ mango-sender-prod   (0–5 replicas)│
- │  ├─ mango-receiver-dev  (1 replica)   │          │  ├─ mango-receiver-prod (1 replica)   │
- │  └─ mango-rabbitmq-dev  (1 replica)   │          │  └─ mango-rabbitmq-prod (1 replica)   │
+ │  ├─ alpha-sender-dev    (0–2 replicas)│          │  ├─ alpha-sender-prod   (0–5 replicas)│
+ │  ├─ alpha-receiver-dev  (1 replica)   │          │  ├─ alpha-receiver-prod (1 replica)   │
+ │  └─ alpha-rabbitmq-dev  (1 replica)   │          │  └─ alpha-rabbitmq-prod (1 replica)   │
  └───────────────────────────────────────┘          └───────────────────────────────────────┘
 ```
 
@@ -29,21 +29,21 @@ All resource groups and resources are created **automatically by the pipeline** 
 
 | Resource Group | Azure Resource Type | Name | SKU / Sizing | Why It Is Needed |
 |---|---|---|---|---|
-| `mango-rg-shared` | **Azure Container Registry (ACR)** | `mangoacr<unique>` | `Basic` (10 GB included, auto-pruned to last 10 tags) | Stores `notification-sender` & `notification-receiver` Docker images once and promotes the exact same image from `dev` → `prod`. |
-| `mango-rg-dev` & `mango-rg-prod` | **Virtual Network + Subnet** | `mango-vnet-{env}` / `snet-container-apps` | Standard VNet (`/16` + `/23` delegated subnet) | Required by Azure Container Apps to allow internal **TCP ingress** (port `5672` AMQP) for RabbitMQ. |
-| `mango-rg-dev` & `mango-rg-prod` | **Log Analytics Workspace** | `mango-logs-{env}` | `PerGB2018`, 30-day retention, **0.1 GB/day cap** | Stores container console and system logs while staying 100% inside Azure's **5 GB/month free tier**. |
-| `mango-rg-dev` & `mango-rg-prod` | **Container Apps Environment** | `mango-env-{env}` | `Consumption` workload profile | Serverless hosting environment shared by the 3 container apps in each environment ($0 base fee). |
-| `mango-rg-dev` & `mango-rg-prod` | **Container App — Sender** | `mango-sender-{env}` | `0.25 vCPU`, `0.5 GiB` RAM, **0 → 2/5 replicas** | Stateless CQRS Command API (`POST /api/notifications`). Scales to **0 replicas ($0)** when idle and wakes on HTTP request. |
-| `mango-rg-dev` & `mango-rg-prod` | **Container App — Receiver** | `mango-receiver-{env}` | `0.25 vCPU`, `0.5 GiB` RAM, **1 replica** | CQRS Query API (`GET /api/notifications`) + MassTransit RabbitMQ consumer + local SQLite store. |
-| `mango-rg-dev` & `mango-rg-prod` | **Container App — RabbitMQ** | `mango-rabbitmq-{env}` | `0.25 vCPU`, `0.5 GiB` RAM, **1 replica** (`3.13-alpine`) | Internal-only AMQP message broker connecting Sender and Receiver. |
+| `alpha-rg-shared` | **Azure Container Registry (ACR)** | `alphaacr<unique>` | `Basic` (10 GB included, auto-pruned to last 10 tags) | Stores `notification-sender` & `notification-receiver` Docker images once and promotes the exact same image from `dev` → `prod`. |
+| `alpha-rg-dev` & `alpha-rg-prod` | **Virtual Network + Subnet** | `alpha-vnet-{env}` / `snet-container-apps` | Standard VNet (`/16` + `/23` delegated subnet) | Required by Azure Container Apps to allow internal **TCP ingress** (port `5672` AMQP) for RabbitMQ. |
+| `alpha-rg-dev` & `alpha-rg-prod` | **Log Analytics Workspace** | `alpha-logs-{env}` | `PerGB2018`, 30-day retention, **0.1 GB/day cap** | Stores container console and system logs while staying 100% inside Azure's **5 GB/month free tier**. |
+| `alpha-rg-dev` & `alpha-rg-prod` | **Container Apps Environment** | `alpha-env-{env}` | `Consumption` workload profile | Serverless hosting environment shared by the 3 container apps in each environment ($0 base fee). |
+| `alpha-rg-dev` & `alpha-rg-prod` | **Container App — Sender** | `alpha-sender-{env}` | `0.25 vCPU`, `0.5 GiB` RAM, **0 → 2/5 replicas** | Stateless CQRS Command API (`POST /api/notifications`). Scales to **0 replicas ($0)** when idle and wakes on HTTP request. |
+| `alpha-rg-dev` & `alpha-rg-prod` | **Container App — Receiver** | `alpha-receiver-{env}` | `0.25 vCPU`, `0.5 GiB` RAM, **1 replica** | CQRS Query API (`GET /api/notifications`) + MassTransit RabbitMQ consumer + local SQLite store. |
+| `alpha-rg-dev` & `alpha-rg-prod` | **Container App — RabbitMQ** | `alpha-rabbitmq-{env}` | `0.25 vCPU`, `0.5 GiB` RAM, **1 replica** (`3.13-alpine`) | Internal-only AMQP message broker connecting Sender and Receiver. |
 
 ### Dev vs. Prod Environment Differences
 
 | Setting | `dev` | `prod` |
 |---|---|---|
-| Resource group | `mango-rg-dev` | `mango-rg-prod` |
-| Azure DevOps Environment | `mango-dev` (auto-deploy) | `mango-prod` (**manual approval gate**) |
-| Variable group (secrets) | `mango-dev` | `mango-prod` |
+| Resource group | `alpha-rg-dev` | `alpha-rg-prod` |
+| Azure DevOps Environment | `alpha-dev` (auto-deploy) | `alpha-prod` (**manual approval gate**) |
+| Variable group (secrets) | `alpha-dev` | `alpha-prod` |
 | Sender scaling | **0**–2 replicas (scale-to-zero) | **0**–5 replicas (scale-to-zero) |
 | Receiver & RabbitMQ scaling | 1 replica each (`0.25 vCPU / 0.5 GiB`) | 1 replica each (`0.25 vCPU / 0.5 GiB`) |
 | Swagger UI (`/swagger`) | ✅ Enabled | ❌ Disabled |
@@ -60,7 +60,7 @@ flowchart LR
     Main["Push / merge to main"] --> CI2["CI: build, test, lint"]
     CI2 --> IMG["Deploy shared ACR + push images (tag = BuildId) + prune old tags"]
     IMG --> DEV["Deploy dev + smoke tests"]
-    DEV --> APPROVAL{"Approval on mango-prod"}
+    DEV --> APPROVAL{"Approval on alpha-prod"}
     APPROVAL --> PROD["Deploy prod (same image) + health checks"]
 ```
 
@@ -83,9 +83,9 @@ Key files in this repo:
 Run [`scripts/setup-azure-devops.ps1`](../scripts/setup-azure-devops.ps1) to automatically:
 1. Register the required Azure resource providers on your subscription
 2. Add your Azure Repos `azure` remote and push `main`
-3. Generate strong 24-character passwords and create the `mango-dev` and `mango-prod` Variable Groups with secret `RABBITMQ_PASSWORD`
-4. Create the `mango-dev` and `mango-prod` Azure DevOps Environments
-5. Create the `Mango-CI-CD` pipeline from `/azure-pipelines.yml`
+3. Generate strong 24-character passwords and create the `alpha-dev` and `alpha-prod` Variable Groups with secret `RABBITMQ_PASSWORD`
+4. Create the `alpha-dev` and `alpha-prod` Azure DevOps Environments
+5. Create the `Alpha-CI-CD` pipeline from `/azure-pipelines.yml`
 
 ```powershell
 az login
@@ -97,7 +97,7 @@ az login
   -SubscriptionId "<your-azure-subscription-id>"
 ```
 
-After the script finishes, complete only **Step 3** (create the `mango-azure` service connection) and **Step 5b** (add yourself as approver on `mango-prod`) below.
+After the script finishes, complete only **Step 3** (create the `alpha-azure` service connection) and **Step 5b** (add yourself as approver on `alpha-prod`) below.
 
 ---
 
@@ -125,7 +125,7 @@ az provider register --namespace Microsoft.ContainerRegistry
 az provider register --namespace Microsoft.Network
 ```
 
-#### Step 3 — Create the Azure Service Connection (`mango-azure`)
+#### Step 3 — Create the Azure Service Connection (`alpha-azure`)
 
 In Azure DevOps: **Project settings (bottom-left) → Service connections → New service connection → Azure Resource Manager → Next**:
 
@@ -135,18 +135,18 @@ In Azure DevOps: **Project settings (bottom-left) → Service connections → Ne
 | Credential | **Workload identity federation** (secretless OIDC — never expires) |
 | Scope level | **Subscription** |
 | Subscription | Select your Azure subscription |
-| Resource group | **Leave blank** *(the pipeline creates `mango-rg-shared`, `mango-rg-dev`, and `mango-rg-prod` at subscription scope)* |
-| Service connection name | **`mango-azure`** |
+| Resource group | **Leave blank** *(the pipeline creates `alpha-rg-shared`, `alpha-rg-dev`, and `alpha-rg-prod` at subscription scope)* |
+| Service connection name | **`alpha-azure`** |
 | Security | ✅ **Grant access permission to all pipelines** |
 
-#### Step 4 — Create Secret Variable Groups (`mango-dev` & `mango-prod`)
+#### Step 4 — Create Secret Variable Groups (`alpha-dev` & `alpha-prod`)
 
 In Azure DevOps: **Pipelines → Library → + Variable group**. Create two groups (and enable **Allow access to all pipelines** on each):
 
 | Variable group name | Variable name | Value | Secret (🔒)? |
 |---|---|---|---|
-| `mango-dev` | `RABBITMQ_PASSWORD` | Strong password, ≥ 12 chars | 🔒 **Yes** (click the lock icon) |
-| `mango-prod` | `RABBITMQ_PASSWORD` | A *different* strong password, ≥ 12 chars | 🔒 **Yes** (click the lock icon) |
+| `alpha-dev` | `RABBITMQ_PASSWORD` | Strong password, ≥ 12 chars | 🔒 **Yes** (click the lock icon) |
+| `alpha-prod` | `RABBITMQ_PASSWORD` | A *different* strong password, ≥ 12 chars | 🔒 **Yes** (click the lock icon) |
 
 Generate a random password in PowerShell:
 ```powershell
@@ -157,11 +157,11 @@ Generate a random password in PowerShell:
 
 In Azure DevOps: **Pipelines → Environments → New environment** (select **None** for resource):
 
-1. Create **`mango-dev`** — leave with no checks (deploys automatically on every push to `main`).
-2. Create **`mango-prod`**:
-   - Open `mango-prod` → click **⋮ (top-right) → Approvals and checks → + → Approvals**.
+1. Create **`alpha-dev`** — leave with no checks (deploys automatically on every push to `main`).
+2. Create **`alpha-prod`**:
+   - Open `alpha-prod` → click **⋮ (top-right) → Approvals and checks → + → Approvals**.
    - Add yourself (or your release approvers group) and click **Create**.
-   - *(Optional)* Add an **Exclusive lock** check on `mango-prod` so two production deployments never run concurrently.
+   - *(Optional)* Add an **Exclusive lock** check on `alpha-prod` so two production deployments never run concurrently.
 
 #### Step 6 — Create & Run the Pipeline
 
@@ -183,14 +183,14 @@ Go to **Repos → Branches → `main` → ⋮ → Branch policies**:
 1. **Stage 1 — `CI` (`Build & Test`)**:
    - Restores, builds, and runs unit/integration tests across `testDotNet.sln`.
    - Compiles and lints both `infra/bicep/shared.bicep` and `infra/bicep/main.bicep`.
-   - On `main` branch: creates `mango-rg-shared` + the shared ACR, builds & pushes `mango/notification-sender:<BuildId>` and `mango/notification-receiver:<BuildId>`, and prunes tags older than the latest 10.
+   - On `main` branch: creates `alpha-rg-shared` + the shared ACR, builds & pushes `alpha/notification-sender:<BuildId>` and `alpha/notification-receiver:<BuildId>`, and prunes tags older than the latest 10.
 2. **Stage 2 — `Deploy_Dev` (`Deploy → dev`)**:
-   - Creates `mango-rg-dev`, runs `az deployment group what-if`, and deploys `infra/bicep/main.bicep` with `environmentName=dev`.
+   - Creates `alpha-rg-dev`, runs `az deployment group what-if`, and deploys `infra/bicep/main.bicep` with `environmentName=dev`.
    - Waits for `https://<sender-dev-fqdn>/health/ready` and `https://<receiver-dev-fqdn>/health/ready` to return `200 OK`.
    - Runs an automated end-to-end CQRS test: `POST`s a notification to `NotificationSender` and polls `NotificationReceiver` until the event arrives via RabbitMQ and is persisted in SQLite.
 3. **Stage 3 — `Deploy_Prod` (`Deploy → prod`)**:
-   - Pauses for your **manual approval** on the `mango-prod` environment.
-   - Once approved, deploys the **exact same image tag** (`<BuildId>`) to `mango-rg-prod` and verifies `/health/ready` on both services.
+   - Pauses for your **manual approval** on the `alpha-prod` environment.
+   - Once approved, deploys the **exact same image tag** (`<BuildId>`) to `alpha-rg-prod` and verifies `/health/ready` on both services.
 
 ---
 
@@ -218,9 +218,9 @@ The Bicep templates have been specifically optimized for minimal cost:
 
 > [!TIP]
 > **Want £0 compute cost when you aren't actively testing?**
-> You can stop or delete `mango-rg-dev` (or `mango-rg-prod`) anytime:
+> You can stop or delete `alpha-rg-dev` (or `alpha-rg-prod`) anytime:
 > ```powershell
-> az group delete --name mango-rg-dev --yes --no-wait
+> az group delete --name alpha-rg-dev --yes --no-wait
 > ```
 > The next pipeline run recreates the entire environment from scratch automatically!
 
@@ -231,7 +231,7 @@ The Bicep templates have been specifically optimized for minimal cost:
 | Change | Why It Was Needed |
 |---|---|
 | **VNet-integrated Container Apps Environment** ([`network.bicep`](../infra/bicep/modules/network.bicep)) | Azure Container Apps requires a custom VNet whenever an app uses **TCP ingress** (RabbitMQ AMQP port `5672`). Without this, deployment fails in Azure. |
-| **Shared ACR in `mango-rg-shared`** ([`shared.bicep`](../infra/bicep/shared.bicep)) | Builds images once in CI and promotes the exact same artifact to `dev` and `prod`, saving build time and cutting ACR cost in half. |
+| **Shared ACR in `alpha-rg-shared`** ([`shared.bicep`](../infra/bicep/shared.bicep)) | Builds images once in CI and promotes the exact same artifact to `dev` and `prod`, saving build time and cutting ACR cost in half. |
 | **Secret `RABBITMQ_PASSWORD` via `secretRef`** | Replaced hardcoded `guest/guest` with environment-specific secret variables injected into Container Apps secrets. |
 | **Split `/health/live` and `/health/ready` endpoints** | Liveness checks only the web process (preventing restart loops if RabbitMQ restarts), while Readiness checks the MassTransit RabbitMQ bus connection. |
 | **Per-environment `Swagger__Enabled` setting** | Enables Swagger UI in `dev` (`https://<fqdn>/swagger`) while keeping it disabled in `prod`. |
@@ -244,7 +244,7 @@ The Bicep templates have been specifically optimized for minimal cost:
 
 | Symptom | Cause & Fix |
 |---|---|
-| `RABBITMQ_PASSWORD is missing` | Ensure variable groups are named `mango-dev` and `mango-prod` and contain `RABBITMQ_PASSWORD` (or run `.\scripts\setup-azure-devops.ps1`). |
+| `RABBITMQ_PASSWORD is missing` | Ensure variable groups are named `alpha-dev` and `alpha-prod` and contain `RABBITMQ_PASSWORD` (or run `.\scripts\setup-azure-devops.ps1`). |
 | `The subscription is not registered to use namespace 'Microsoft.App'` | Run the `az provider register` commands in Step 2 (or run `.\scripts\setup-azure-devops.ps1`). |
-| `Could not find service connection 'mango-azure'` | Create the ARM service connection named `mango-azure` in **Project settings → Service connections**. |
+| `Could not find service connection 'alpha-azure'` | Create the ARM service connection named `alpha-azure` in **Project settings → Service connections**. |
 | Pipeline pauses waiting for permission | Open the pipeline run and click **Permit** on the yellow banner for the service connection / variable group / environment. |

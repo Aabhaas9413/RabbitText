@@ -5,11 +5,11 @@ VisualStudioVersion = 17.14.36518.9 d17.14
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "testDotNet", "testDotNet\testDotNet.csproj", "{801DFBD8-E272-46F2-AF80-97A205479DDF}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Mango.Shared", "src\Shared\Mango.Shared\Mango.Shared.csproj", "{A1B2C3D4-E5F6-7890-ABCD-EF1234567890}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Alpha.Shared", "src\Shared\Alpha.Shared\Alpha.Shared.csproj", "{A1B2C3D4-E5F6-7890-ABCD-EF1234567890}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Mango.NotificationSender", "src\NotificationSender\Mango.NotificationSender.csproj", "{B2C3D4E5-F6A7-8901-BCDE-F12345678901}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Alpha.NotificationSender", "src\NotificationSender\Alpha.NotificationSender.csproj", "{B2C3D4E5-F6A7-8901-BCDE-F12345678901}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Mango.NotificationReceiver", "src\NotificationReceiver\Mango.NotificationReceiver.csproj", "{C3D4E5F6-A7B8-9012-CDEF-123456789012}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Alpha.NotificationReceiver", "src\NotificationReceiver\Alpha.NotificationReceiver.csproj", "{C3D4E5F6-A7B8-9012-CDEF-123456789012}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution

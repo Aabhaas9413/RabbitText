@@ -1,8 +1,8 @@
 using MediatR;
 using Microsoft.AspNetCore.Mvc;
-using Mango.NotificationSender.Commands;
+using Alpha.NotificationSender.Commands;
 
-namespace Mango.NotificationSender.Controllers;
+namespace Alpha.NotificationSender.Controllers;
 
 /// <summary>
 /// Handles incoming HTTP requests for the Notification Sender (Command Side).

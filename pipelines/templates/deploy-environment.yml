@@ -101,7 +101,7 @@ jobs:
               echo "== Deploying main.bicep (image tag $(imageTag))"
               OUTPUTS=$(az deployment group create \
                 --resource-group "$RG" \
-                --name "mango-${{ parameters.environmentName }}-$(Build.BuildId)" \
+                --name "alpha-${{ parameters.environmentName }}-$(Build.BuildId)" \
                 --template-file infra/bicep/main.bicep \
                 --parameters "@$PARAMS_FILE" \
                 --query properties.outputs --output json)

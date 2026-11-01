@@ -8,7 +8,7 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: receiver-config
-  namespace: mango
+  namespace: alpha
   labels:
     app: notification-receiver
 data:
@@ -24,7 +24,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: notification-receiver
-  namespace: mango
+  namespace: alpha
   labels:
     app: notification-receiver
     tier: query
@@ -48,7 +48,7 @@ spec:
     spec:
       containers:
         - name: notification-receiver
-          image: mango/notification-receiver:latest
+          image: alpha/notification-receiver:latest
           imagePullPolicy: Always
           ports:
             - name: http
@@ -89,7 +89,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: notification-receiver
-  namespace: mango
+  namespace: alpha
   labels:
     app: notification-receiver
 spec:
@@ -108,7 +108,7 @@ spec:
 apiVersion: v1
 kind: Namespace
 metadata:
-  name: mango
+  name: alpha
   labels:
-    project: mango
+    project: alpha
     managed-by: kubectl
