@@ -30,12 +30,13 @@ public sealed class SendNotificationCommandHandler
 
         var integrationEvent = new NotificationCreatedEvent
         {
-            Id          = notificationId,
-            Title       = request.Title,
-            Message     = request.Message,
-            Category    = request.Category,
-            RecipientId = request.RecipientId,
-            CreatedAt   = DateTimeOffset.UtcNow
+            Id            = notificationId,
+            CorrelationId = notificationId,
+            Title         = request.Title,
+            Message       = request.Message,
+            Category      = request.Category,
+            RecipientId   = request.RecipientId,
+            CreatedAt     = DateTimeOffset.UtcNow
         };
 
         // Publish the integration event to RabbitMQ.

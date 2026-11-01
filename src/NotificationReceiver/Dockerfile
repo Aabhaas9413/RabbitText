@@ -28,7 +28,7 @@ RUN dotnet publish "Mango.NotificationReceiver.csproj" -c Release -o /app/publis
 FROM mcr.microsoft.com/dotnet/aspnet:9.0 AS final
 WORKDIR /app
 
-RUN addgroup --system appgroup && adduser --system --ingroup appgroup appuser
+RUN mkdir -p /app/data && addgroup --system appgroup && adduser --system --ingroup appgroup appuser && chown -R appuser:appgroup /app/data
 USER appuser
 
 EXPOSE 8080

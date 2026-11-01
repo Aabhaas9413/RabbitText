@@ -1,0 +1,197 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# azure-pipelines.yml — Mango CQRS Platform (Azure DevOps, multi-stage)
+#
+#   PR to main  : CI only (build, test, Bicep lint, Docker build — no push)
+#   Push to main: CI → push images → Deploy DEV → [manual approval] → Deploy PROD
+#
+# The SAME image tag (build id) built in CI is promoted to dev and then prod.
+# One-time Azure DevOps setup is documented in docs/AZURE_DEPLOYMENT.md.
+# ─────────────────────────────────────────────────────────────────────────────
+
+name: $(Date:yyyyMMdd)$(Rev:.r)
+
+trigger:
+  batch: true
+  branches:
+    include:
+      - main
+  paths:
+    exclude:
+      - README.md
+      - docs/*
+      - k8s/*
+
+pr:
+  branches:
+    include:
+      - main
+
+variables:
+  # ── Change these if you used different names during setup ──────────────────
+  azureServiceConnection: 'mango-azure'      # ARM service connection (Project settings → Service connections)
+  location:               'uksouth'
+  projectName:            'mango'
+  sharedResourceGroup:    'mango-rg-shared'  # holds the shared container registry
+  # ───────────────────────────────────────────────────────────────────────────
+  buildConfiguration: 'Release'
+  imageTag:           '$(Build.BuildId)'
+  vmImage:            'ubuntu-latest'
+
+stages:
+
+# ═════════════════════════════════════════════════════════════════════════════
+# STAGE 1 — CI: build, test, lint, container images
+# ═════════════════════════════════════════════════════════════════════════════
+- stage: CI
+  displayName: 'Build & Test'
+  jobs:
+
+  - job: Build
+    displayName: 'dotnet build + test, Bicep lint'
+    pool:
+      vmImage: $(vmImage)
+    steps:
+    - checkout: self
+      fetchDepth: 1
+
+    - task: UseDotNet@2
+      displayName: 'Install .NET 9 SDK'
+      inputs:
+        packageType: sdk
+        version: '9.0.x'
+
+    - script: dotnet restore testDotNet.sln
+      displayName: 'dotnet restore'
+
+    - script: dotnet build testDotNet.sln --configuration $(buildConfiguration) --no-restore
+      displayName: 'dotnet build'
+
+    # Runs every *test* project in the solution. Succeeds (no-op) until test projects are added.
+    - script: >
+        dotnet test testDotNet.sln
+        --configuration $(buildConfiguration)
+        --no-build
+        --logger trx
+        --results-directory $(Agent.TempDirectory)/TestResults
+      displayName: 'dotnet test'
+
+    - task: PublishTestResults@2
+      displayName: 'Publish test results'
+      condition: succeededOrFailed()
+      inputs:
+        testResultsFormat: VSTest
+        testResultsFiles: '$(Agent.TempDirectory)/TestResults/**/*.trx'
+        failTaskOnMissingResultsFile: false
+
+    - script: |
+        set -euo pipefail
+        az bicep install
+        az bicep build --file infra/bicep/shared.bicep --stdout > /dev/null
+        az bicep build --file infra/bicep/main.bicep   --stdout > /dev/null
+      displayName: 'Bicep build / lint'
+
+  # ── PRs: prove the images build, but never push ────────────────────────────
+  - job: ImagesPR
+    displayName: 'Docker build (PR validation)'
+    dependsOn: Build
+    condition: and(succeeded(), eq(variables['Build.Reason'], 'PullRequest'))
+    pool:
+      vmImage: $(vmImage)
+    steps:
+    - checkout: self
+      fetchDepth: 1
+    - script: |
+        set -euo pipefail
+        docker build --file src/NotificationSender/Dockerfile   --tag mango/notification-sender:pr .
+        docker build --file src/NotificationReceiver/Dockerfile --tag mango/notification-receiver:pr .
+      displayName: 'docker build'
+
+  # ── main: ensure shared ACR exists, then build + push once ─────────────────
+  - job: Images
+    displayName: 'Docker build & push to ACR'
+    dependsOn: Build
+    condition: and(succeeded(), ne(variables['Build.Reason'], 'PullRequest'), eq(variables['Build.SourceBranch'], 'refs/heads/main'))
+    pool:
+      vmImage: $(vmImage)
+    steps:
+    - checkout: self
+      fetchDepth: 1
+
+    - task: AzureCLI@2
+      name: publish
+      displayName: 'Provision shared ACR, build & push images'
+      inputs:
+        azureSubscription: $(azureServiceConnection)
+        scriptType: bash
+        scriptLocation: inlineScript
+        inlineScript: |
+          set -euo pipefail
+
+          echo "== Ensuring shared resource group '$(sharedResourceGroup)'"
+          az group create --name "$(sharedResourceGroup)" --location "$(location)" \
+            --tags project=$(projectName) scope=shared managedBy=azure-devops --output none
+
+          echo "== Deploying shared.bicep (container registry)"
+          ACR_NAME=$(az deployment group create \
+            --resource-group "$(sharedResourceGroup)" \
+            --name "shared-$(Build.BuildId)" \
+            --template-file infra/bicep/shared.bicep \
+            --parameters projectName=$(projectName) location=$(location) \
+            --query properties.outputs.acrName.value --output tsv)
+          ACR_LOGIN_SERVER=$(az acr show --name "$ACR_NAME" --query loginServer --output tsv)
+          echo "ACR: $ACR_LOGIN_SERVER"
+
+          az acr login --name "$ACR_NAME"
+
+          for svc in notification-sender:NotificationSender notification-receiver:NotificationReceiver; do
+            repo="${svc%%:*}"; dir="${svc##*:}"
+            image="$ACR_LOGIN_SERVER/mango/$repo:$(imageTag)"
+            echo "== Building $image"
+            docker build \
+              --file "src/$dir/Dockerfile" \
+              --label "org.opencontainers.image.revision=$(Build.SourceVersion)" \
+              --label "org.opencontainers.image.source=$(Build.Repository.Uri)" \
+              --tag "$image" .
+            docker push "$image"
+          done
+
+          # Hand the registry name to the deploy stages
+          echo "##vso[task.setvariable variable=acrName;isOutput=true]$ACR_NAME"
+
+# ═════════════════════════════════════════════════════════════════════════════
+# STAGE 2 — Deploy DEV (automatic on main)
+# ═════════════════════════════════════════════════════════════════════════════
+- stage: Deploy_Dev
+  displayName: 'Deploy → dev'
+  dependsOn: CI
+  condition: and(succeeded(), ne(variables['Build.Reason'], 'PullRequest'), eq(variables['Build.SourceBranch'], 'refs/heads/main'))
+  variables:
+    acrName: $[ stageDependencies.CI.Images.outputs['publish.acrName'] ]
+  jobs:
+  - template: pipelines/templates/deploy-environment.yml
+    parameters:
+      environmentName: dev
+      adoEnvironment:  mango-dev
+      resourceGroup:   mango-rg-dev
+      variableGroup:   mango-dev
+      runEndToEndTest: true
+
+# ═════════════════════════════════════════════════════════════════════════════
+# STAGE 3 — Deploy PROD (waits for approval on the 'mango-prod' environment)
+# ═════════════════════════════════════════════════════════════════════════════
+- stage: Deploy_Prod
+  displayName: 'Deploy → prod'
+  dependsOn:
+  - CI
+  - Deploy_Dev
+  condition: and(succeeded(), ne(variables['Build.Reason'], 'PullRequest'), eq(variables['Build.SourceBranch'], 'refs/heads/main'))
+  variables:
+    acrName: $[ stageDependencies.CI.Images.outputs['publish.acrName'] ]
+  jobs:
+  - template: pipelines/templates/deploy-environment.yml
+    parameters:
+      environmentName: prod
+      adoEnvironment:  mango-prod
+      resourceGroup:   mango-rg-prod
+      variableGroup:   mango-prod
+      runEndToEndTest: false   # health checks only — don't write test data into prod

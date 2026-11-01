@@ -1,5 +1,3 @@
-version: "3.9"
-
 # ─────────────────────────────────────────────────────────────────────────────
 # Docker Compose Override — Local Development
 # Extends docker-compose.yml with development-friendly settings.

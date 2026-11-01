@@ -1,0 +1,151 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# deploy-environment.yml — reusable deployment job for one environment
+#
+# Expects these variables to be available:
+#   azureServiceConnection, location, projectName, sharedResourceGroup,
+#   imageTag, vmImage                    (pipeline-level)
+#   acrName                              (stage-level, from CI output)
+#   RABBITMQ_PASSWORD                    (secret, from the variable group)
+# ─────────────────────────────────────────────────────────────────────────────
+
+parameters:
+- name: environmentName     # dev | prod  (passed to main.bicep)
+  type: string
+- name: adoEnvironment      # Azure DevOps Environment (approvals/checks live here)
+  type: string
+- name: resourceGroup       # Azure resource group for this environment
+  type: string
+- name: variableGroup       # Library variable group containing RABBITMQ_PASSWORD
+  type: string
+- name: runEndToEndTest     # POST a notification and read it back through RabbitMQ
+  type: boolean
+  default: true
+
+jobs:
+- deployment: Deploy
+  displayName: 'Bicep deploy + smoke test (${{ parameters.environmentName }})'
+  environment: ${{ parameters.adoEnvironment }}
+  pool:
+    vmImage: $(vmImage)
+  timeoutInMinutes: 45
+  variables:
+  - group: ${{ parameters.variableGroup }}
+  strategy:
+    runOnce:
+      deploy:
+        steps:
+        - checkout: self
+          fetchDepth: 1
+
+        - task: AzureCLI@2
+          name: deploy
+          displayName: 'Deploy infrastructure & apps'
+          env:
+            RABBITMQ_PASSWORD: $(RABBITMQ_PASSWORD)   # secrets must be mapped explicitly
+          inputs:
+            azureSubscription: $(azureServiceConnection)
+            scriptType: bash
+            scriptLocation: inlineScript
+            inlineScript: |
+              set -euo pipefail
+
+              # An undefined variable is passed through unexpanded, i.e. it starts with "$(".
+              if [[ -z "${RABBITMQ_PASSWORD:-}" || "$RABBITMQ_PASSWORD" == '$('* ]]; then
+                echo "##vso[task.logissue type=error]RABBITMQ_PASSWORD is missing. Add it as a SECRET variable to the '${{ parameters.variableGroup }}' variable group."
+                exit 1
+              fi
+              if [[ -z "$(acrName)" ]]; then
+                echo "##vso[task.logissue type=error]acrName was not passed from the CI stage."
+                exit 1
+              fi
+
+              RG="${{ parameters.resourceGroup }}"
+              echo "== Ensuring resource group '$RG'"
+              az group create --name "$RG" --location "$(location)" \
+                --tags project=$(projectName) environment=${{ parameters.environmentName }} managedBy=azure-devops \
+                --output none
+
+              # Parameters go through a temp JSON file so special characters in the
+              # password can't break CLI argument parsing.
+              PARAMS_FILE="$(Agent.TempDirectory)/main.parameters.json"
+              trap 'rm -f "$PARAMS_FILE"' EXIT
+              jq -n \
+                --arg env      "${{ parameters.environmentName }}" \
+                --arg loc      "$(location)" \
+                --arg proj     "$(projectName)" \
+                --arg tag      "$(imageTag)" \
+                --arg acr      "$(acrName)" \
+                --arg acrRg    "$(sharedResourceGroup)" \
+                --arg rmqPass  "$RABBITMQ_PASSWORD" \
+                '{
+                  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentParameters.json#",
+                  contentVersion: "1.0.0.0",
+                  parameters: {
+                    environmentName:  { value: $env },
+                    location:         { value: $loc },
+                    projectName:      { value: $proj },
+                    imageTag:         { value: $tag },
+                    acrName:          { value: $acr },
+                    acrResourceGroup: { value: $acrRg },
+                    rabbitmqPassword: { value: $rmqPass }
+                  }
+                }' > "$PARAMS_FILE"
+
+              echo "== What-if (preview of changes)"
+              az deployment group what-if \
+                --resource-group "$RG" \
+                --template-file infra/bicep/main.bicep \
+                --parameters "@$PARAMS_FILE" \
+                --no-pretty-print --result-format ResourceIdOnly || true
+
+              echo "== Deploying main.bicep (image tag $(imageTag))"
+              OUTPUTS=$(az deployment group create \
+                --resource-group "$RG" \
+                --name "mango-${{ parameters.environmentName }}-$(Build.BuildId)" \
+                --template-file infra/bicep/main.bicep \
+                --parameters "@$PARAMS_FILE" \
+                --query properties.outputs --output json)
+
+              SENDER_FQDN=$(echo "$OUTPUTS"   | jq -r '.senderFqdn.value')
+              RECEIVER_FQDN=$(echo "$OUTPUTS" | jq -r '.receiverFqdn.value')
+              echo "Sender:   https://$SENDER_FQDN"
+              echo "Receiver: https://$RECEIVER_FQDN"
+              echo "##vso[task.setvariable variable=senderFqdn]$SENDER_FQDN"
+              echo "##vso[task.setvariable variable=receiverFqdn]$RECEIVER_FQDN"
+
+        - bash: |
+            set -euo pipefail
+
+            wait_ready () {
+              local url="$1"
+              for i in $(seq 1 30); do
+                code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 "$url" || true)
+                if [[ "$code" == "200" ]]; then echo "OK  $url"; return 0; fi
+                echo "…  $url → $code (attempt $i/30)"; sleep 10
+              done
+              echo "##vso[task.logissue type=error]$url never became healthy"; return 1
+            }
+
+            wait_ready "https://$(senderFqdn)/health/ready"
+            wait_ready "https://$(receiverFqdn)/health/ready"
+          displayName: 'Smoke test: health'
+
+        - ${{ if eq(parameters.runEndToEndTest, true) }}:
+          - bash: |
+              set -euo pipefail
+
+              BODY=$(jq -n --arg t "pipeline-smoke-$(Build.BuildId)" \
+                '{title: $t, message: "Azure DevOps end-to-end smoke test", category: "Smoke", recipientId: "pipeline"}')
+
+              echo "== POST https://$(senderFqdn)/api/notifications"
+              ID=$(curl -fsS --max-time 15 -X POST "https://$(senderFqdn)/api/notifications" \
+                     -H 'Content-Type: application/json' -d "$BODY" | jq -r '.notificationId')
+              echo "Queued notification $ID"
+
+              for i in $(seq 1 18); do
+                code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 "https://$(receiverFqdn)/api/notifications/$ID" || true)
+                if [[ "$code" == "200" ]]; then echo "Receiver has notification $ID — RabbitMQ path works"; exit 0; fi
+                echo "…  not yet consumed ($code), attempt $i/18"; sleep 5
+              done
+              echo "##vso[task.logissue type=error]Notification $ID was not received via RabbitMQ"; exit 1
+            displayName: 'Smoke test: end-to-end via RabbitMQ'

@@ -1,5 +1,6 @@
 using MassTransit;
 using Mango.NotificationSender.Commands;
+using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -52,7 +53,13 @@ builder.Services.AddHealthChecks();
 var app = builder.Build();
 
 // ─── Middleware Pipeline ───────────────────────────────────────────────────
-if (app.Environment.IsDevelopment() || app.Environment.IsEnvironment("Docker"))
+// Swagger is on for local dev / Docker, and can be enabled per Azure environment
+// via the Swagger__Enabled setting (true in dev, false in prod).
+var swaggerEnabled = app.Environment.IsDevelopment()
+    || app.Environment.IsEnvironment("Docker")
+    || app.Configuration.GetValue<bool>("Swagger:Enabled");
+
+if (swaggerEnabled)
 {
     app.UseSwagger();
     app.UseSwaggerUI(c =>
@@ -66,5 +73,9 @@ app.UseHttpsRedirection();
 app.UseAuthorization();
 app.MapControllers();
 app.MapHealthChecks("/health");
+// Liveness: process is up (no dependency checks, so a RabbitMQ blip doesn't trigger restarts)
+app.MapHealthChecks("/health/live", new HealthCheckOptions { Predicate = _ => false });
+// Readiness: includes the MassTransit bus health check registered automatically
+app.MapHealthChecks("/health/ready");
 
 app.Run();

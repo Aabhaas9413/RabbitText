@@ -1,5 +1,8 @@
 using MassTransit;
+using Microsoft.AspNetCore.Diagnostics.HealthChecks;
+using Microsoft.EntityFrameworkCore;
 using Mango.NotificationReceiver.Consumers;
+using Mango.NotificationReceiver.Data;
 using Mango.NotificationReceiver.Queries;
 using Mango.NotificationReceiver.Services;
 
@@ -25,8 +28,21 @@ builder.Services.AddSwaggerGen(options =>
 builder.Services.AddMediatR(cfg =>
     cfg.RegisterServicesFromAssemblyContaining<GetAllNotificationsQuery>());
 
-// ─── Notification Store (in-memory, Singleton so state persists per process) ─
-builder.Services.AddSingleton<INotificationStore, InMemoryNotificationStore>();
+// ─── Database & Persistence — EF Core + SQLite ─────────────────────────────
+var connectionString = builder.Configuration.GetConnectionString("DefaultConnection") ?? "Data Source=data/notifications.db";
+
+// Ensure target directory exists for SQLite database file
+var sqliteDataSource = new Microsoft.Data.Sqlite.SqliteConnectionStringBuilder(connectionString).DataSource;
+var sqliteDir = Path.GetDirectoryName(sqliteDataSource);
+if (!string.IsNullOrEmpty(sqliteDir) && !Directory.Exists(sqliteDir))
+{
+    Directory.CreateDirectory(sqliteDir);
+}
+
+builder.Services.AddDbContext<NotificationDbContext>(options =>
+    options.UseSqlite(connectionString));
+
+builder.Services.AddScoped<INotificationStore, SqliteNotificationStore>();
 
 // ─── MassTransit + RabbitMQ ───────────────────────────────────────────────
 builder.Services.AddMassTransit(x =>
@@ -57,7 +73,13 @@ builder.Services.AddHealthChecks();
 var app = builder.Build();
 
 // ─── Middleware Pipeline ───────────────────────────────────────────────────
-if (app.Environment.IsDevelopment() || app.Environment.IsEnvironment("Docker"))
+// Swagger is on for local dev / Docker, and can be enabled per Azure environment
+// via the Swagger__Enabled setting (true in dev, false in prod).
+var swaggerEnabled = app.Environment.IsDevelopment()
+    || app.Environment.IsEnvironment("Docker")
+    || app.Configuration.GetValue<bool>("Swagger:Enabled");
+
+if (swaggerEnabled)
 {
     app.UseSwagger();
     app.UseSwaggerUI(c =>
@@ -71,5 +93,16 @@ app.UseHttpsRedirection();
 app.UseAuthorization();
 app.MapControllers();
 app.MapHealthChecks("/health");
+// Liveness: process is up (no dependency checks, so a RabbitMQ blip doesn't trigger restarts)
+app.MapHealthChecks("/health/live", new HealthCheckOptions { Predicate = _ => false });
+// Readiness: includes the MassTransit bus health check registered automatically
+app.MapHealthChecks("/health/ready");
+
+// ─── Auto-Create Database Schema ──────────────────────────────────────────
+using (var scope = app.Services.CreateScope())
+{
+    var dbContext = scope.ServiceProvider.GetRequiredService<NotificationDbContext>();
+    await dbContext.Database.EnsureCreatedAsync();
+}
 
 app.Run();

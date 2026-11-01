@@ -1,0 +1,35 @@
+# Keep the Docker build context small and reproducible.
+# The Dockerfiles use `COPY . .` from the repo root, so anything not excluded
+# here is sent to the build — including host bin/obj folders that break restore.
+
+**/bin/
+**/obj/
+**/.vs/
+**/.vscode/
+**/.idea/
+**/*.user
+**/*.suo
+
+.git/
+.gitignore
+.github/
+.azuredevops/
+
+# Local runtime data
+data/
+**/*.db
+**/*.db-shm
+**/*.db-wal
+
+# Infra / docs are not needed inside the images
+infra/
+k8s/
+pipelines/
+docs/
+azure-pipelines.yml
+docker-compose*.yml
+README.md
+
+# Local-only settings
+**/appsettings.Development.json
+**/appsettings.Local.json

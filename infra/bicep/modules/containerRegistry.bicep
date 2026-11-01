@@ -1,13 +1,19 @@
 // ─────────────────────────────────────────────────────────────────────────────
-// containerRegistry.bicep — Azure Container Registry
+// containerRegistry.bicep — Azure Container Registry (shared by dev + prod)
 // ─────────────────────────────────────────────────────────────────────────────
 
-param acrName     string
-param location    string
-param environment string
+@description('Globally unique registry name (5-50 alphanumeric characters).')
+@minLength(5)
+@maxLength(50)
+param acrName string
 
-@description('SKU tier: Basic for dev, Standard/Premium for production.')
-param sku string = environment == 'prod' ? 'Standard' : 'Basic'
+param location string
+
+@description('Basic is enough for a two-environment setup; use Premium for geo-replication / private endpoints.')
+@allowed(['Basic', 'Standard', 'Premium'])
+param sku string = 'Basic'
+
+param tags object = {}
 
 resource acr 'Microsoft.ContainerRegistry/registries@2023-07-01' = {
   name:     acrName
@@ -16,15 +22,13 @@ resource acr 'Microsoft.ContainerRegistry/registries@2023-07-01' = {
     name: sku
   }
   properties: {
-    adminUserEnabled:        true   // Required for Container Apps pull; disable for prod with managed identity
-    publicNetworkAccess:     'Enabled'
-    zoneRedundancy:          environment == 'prod' ? 'Enabled' : 'Disabled'
+    // Admin user is used by Container Apps to pull images. Hardening option:
+    // switch to a user-assigned managed identity with AcrPull (requires the
+    // pipeline identity to be allowed to create role assignments).
+    adminUserEnabled:    true
+    publicNetworkAccess: 'Enabled'
   }
-  tags: {
-    environment: environment
-    project:     'mango'
-    managedBy:   'bicep'
-  }
+  tags: tags
 }
 
 output loginServer string = acr.properties.loginServer

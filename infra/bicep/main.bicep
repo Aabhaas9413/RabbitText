@@ -1,14 +1,15 @@
 // ─────────────────────────────────────────────────────────────────────────────
-// main.bicep — Mango Platform Azure Infrastructure
-// Deploys: Azure Container Registry + Azure Container Apps Environment
-// Target scope: Resource Group
+// main.bicep — Mango Platform, per-environment infrastructure
+// Deploys into the environment resource group (mango-rg-dev / mango-rg-prod):
+//   VNet → Log Analytics → Container Apps Environment → RabbitMQ, Sender, Receiver
+// Images are pulled from the SHARED registry deployed by shared.bicep.
 // ─────────────────────────────────────────────────────────────────────────────
 
 targetScope = 'resourceGroup'
 
-@description('Short environment name. Used in resource naming.')
-@allowed(['dev', 'staging', 'prod'])
-param environment string = 'dev'
+@description('Environment name. Used in resource naming and sizing.')
+@allowed(['dev', 'prod'])
+param environmentName string
 
 @description('Azure region for all resources.')
 param location string = resourceGroup().location
@@ -16,44 +17,82 @@ param location string = resourceGroup().location
 @description('Project name prefix for resource naming.')
 param projectName string = 'mango'
 
-@description('Container image tag to deploy (e.g. build run number).')
-param imageTag string = 'latest'
+@description('Container image tag to deploy (the pipeline passes the build id).')
+param imageTag string
 
-// ─── Variables ────────────────────────────────────────────────────────────────
-var acrName         = '${projectName}acr${environment}'
-var envName         = '${projectName}-env-${environment}'
-var senderAppName   = '${projectName}-sender-${environment}'
-var receiverAppName = '${projectName}-receiver-${environment}'
-var rabbitAppName   = '${projectName}-rabbitmq-${environment}'
+@description('Name of the shared Azure Container Registry (output of shared.bicep).')
+param acrName string
+
+@description('Resource group that contains the shared Azure Container Registry.')
+param acrResourceGroup string
+
+@description('RabbitMQ user created on first start of the broker.')
+param rabbitmqUsername string = 'mango'
+
+@description('RabbitMQ password. Supplied by the pipeline from a secret variable — never commit it.')
+@secure()
+@minLength(12)
+param rabbitmqPassword string
+
+// ─── Per-environment settings ────────────────────────────────────────────────
+var envConfig = {
+  dev: {
+    senderMinReplicas:  1
+    senderMaxReplicas:  2
+    swaggerEnabled:     'true'
+    logRetentionInDays: 30
+    vnetAddressPrefix:  '10.20.0.0/16'
+    acaSubnetPrefix:    '10.20.0.0/23'
+  }
+  prod: {
+    senderMinReplicas:  1
+    senderMaxReplicas:  5
+    swaggerEnabled:     'false'
+    logRetentionInDays: 90
+    vnetAddressPrefix:  '10.30.0.0/16'
+    acaSubnetPrefix:    '10.30.0.0/23'
+  }
+}
+var cfg = envConfig[environmentName]
+
+var tags = {
+  environment: environmentName
+  project:     projectName
+  managedBy:   'bicep'
+}
 
 // ─── Modules ──────────────────────────────────────────────────────────────────
-module acr 'modules/containerRegistry.bicep' = {
-  name: 'deployACR'
+module network 'modules/network.bicep' = {
+  name: 'network-${environmentName}'
   params: {
-    acrName:     acrName
-    location:    location
-    environment: environment
+    vnetName:        '${projectName}-vnet-${environmentName}'
+    location:        location
+    addressPrefix:   cfg.vnetAddressPrefix
+    acaSubnetPrefix: cfg.acaSubnetPrefix
+    tags:            tags
   }
 }
 
 module containerApps 'modules/containerApps.bicep' = {
-  name: 'deployContainerApps'
+  name: 'containerApps-${environmentName}'
   params: {
-    location:       location
-    environment:    environment
-    envName:        envName
-    acrLoginServer: acr.outputs.loginServer
-    acrName:        acrName
-    projectName:    projectName
-    imageTag:       imageTag
-    senderAppName:   senderAppName
-    receiverAppName: receiverAppName
-    rabbitAppName:   rabbitAppName
+    location:           location
+    environmentName:    environmentName
+    projectName:        projectName
+    tags:               tags
+    infraSubnetId:      network.outputs.acaSubnetId
+    acrName:            acrName
+    acrResourceGroup:   acrResourceGroup
+    imageTag:           imageTag
+    rabbitmqUsername:   rabbitmqUsername
+    rabbitmqPassword:   rabbitmqPassword
+    senderMinReplicas:  cfg.senderMinReplicas
+    senderMaxReplicas:  cfg.senderMaxReplicas
+    swaggerEnabled:     cfg.swaggerEnabled
+    logRetentionInDays: cfg.logRetentionInDays
   }
-  dependsOn: [acr]
 }
 
-// ─── Outputs ──────────────────────────────────────────────────────────────────
-output acrLoginServer    string = acr.outputs.loginServer
-output senderFqdn        string = containerApps.outputs.senderFqdn
-output receiverFqdn      string = containerApps.outputs.receiverFqdn
+// ─── Outputs (consumed by the pipeline smoke tests) ──────────────────────────
+output senderFqdn   string = containerApps.outputs.senderFqdn
+output receiverFqdn string = containerApps.outputs.receiverFqdn

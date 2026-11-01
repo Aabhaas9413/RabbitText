@@ -31,7 +31,7 @@ A production-grade **CQRS microservices** architecture built on **.NET 9**, **Me
 ┌─────────────────────────────────────────────────────────────────┐
 │         NotificationReceiver  (Query Side — Port 5002)           │
 │                                                                   │
-│  MassTransit Consumer → INotificationStore (in-memory)           │
+│  MassTransit Consumer → INotificationStore (EF Core + SQLite)     │
 │                                                                   │
 │  GET /api/notifications → MediatR → GetAllNotificationsHandler   │
 └──────────────────────────────────────────────────────────────────┘
@@ -45,7 +45,7 @@ A production-grade **CQRS microservices** architecture built on **.NET 9**, **Me
 | **Accepts** | `POST /api/notifications` | `GET /api/notifications` |
 | **MediatR** | `ICommand<Guid>` | `IQuery<IReadOnlyList<...>>` |
 | **RabbitMQ role** | Publisher | Consumer |
-| **State** | Stateless | In-memory store |
+| **State** | Stateless | EF Core + SQLite persistent log |
 
 ---
 
@@ -156,11 +156,23 @@ You'll see the notification the Receiver consumed from RabbitMQ:
 ]
 ```
 
-### 7. Stop the stack
+### 7. Inspect the SQLite Database
+
+To view the raw persistent SQLite database rows stored inside Docker:
+
+**Option A — Via VS Code (Live Sync)**:
+1. Install the **[SQLite Viewer](https://marketplace.visualstudio.com/items?itemName=qwtel.sqlite-viewer)** extension in VS Code.
+2. Click `data/receiver/notifications.db` directly in your VS Code file explorer.
+3. Click the **Refresh** button inside SQLite Viewer to see new rows appear as events are sent!
+
+**Option B — Via REST API / Browser**:
+Open [http://localhost:5002/api/notifications](http://localhost:5002/api/notifications) or [http://localhost:5002/swagger](http://localhost:5002/swagger) to see all database records formatted as JSON.
+
+### 8. Stop the stack
 
 ```bash
-docker-compose down          # Stop containers, preserve volumes
-docker-compose down -v       # Stop containers AND delete RabbitMQ data
+docker-compose down          # Stop containers, preserve volumes & SQLite database
+docker-compose down -v       # Stop containers AND delete RabbitMQ/SQLite volumes
 ```
 
 ---
@@ -269,32 +281,23 @@ kubectl port-forward service/rabbitmq 15672:15672 -n mango
 
 ---
 
-## ☁️ Azure Deployment (Bicep)
+## ☁️ Azure Deployment (Bicep + Azure DevOps)
 
-### Prerequisites
-- Azure CLI: `winget install Microsoft.AzureCLI`
-- Logged in: `az login`
-- Resource group created: `az group create --name mango-rg-dev --location uksouth`
+Deploy to Azure across **dev** and **prod** environments using Azure Pipelines and Bicep.
 
-### Deploy infrastructure
+For the comprehensive step-by-step setup guide, see [docs/AZURE_DEPLOYMENT.md](file:///c:/Users/aabha/source/repos/testDotNet/docs/AZURE_DEPLOYMENT.md).
 
-```bash
-cd infra/bicep
+### Quick Pipeline Summary
 
-az deployment group create \
-  --resource-group mango-rg-dev \
-  --template-file main.bicep \
-  --parameters environment=dev imageTag=latest
-```
-
-### Azure DevOps Pipeline
-
-1. Import `infra/azure-pipelines.yml` into your Azure DevOps project
-2. Set up **Service Connections** in Project Settings:
-   - `mango-acr-connection` — Docker Registry connection to your ACR
-   - `mango-azure-subscription` — Azure Resource Manager connection
-3. Update `acrLoginServer` and `resourceGroup` variables in the pipeline file
-4. Create **Environments** named `mango-dev` and `mango-prod` with approval gates for production
+1. Push this repository to your **Azure Repos** Git remote.
+2. In Azure DevOps **Project Settings → Service Connections**, create an Azure Resource Manager connection named `mango-azure`.
+3. In **Pipelines → Library**, create two variable groups:
+   - `mango-dev` with secret variable `RABBITMQ_PASSWORD`
+   - `mango-prod` with secret variable `RABBITMQ_PASSWORD`
+4. In **Pipelines → Environments**, create:
+   - `mango-dev` (direct automated deployment)
+   - `mango-prod` (add an **Approval check** for manual gating)
+5. Create a new pipeline pointing to the existing [`azure-pipelines.yml`](file:///c:/Users/aabha/source/repos/testDotNet/azure-pipelines.yml).
 
 ---
 
@@ -302,6 +305,12 @@ az deployment group create \
 
 ```
 testDotNet/
+├── azure-pipelines.yml               # Multi-stage CI/CD pipeline (Build → Dev → Prod)
+├── pipelines/
+│   └── templates/
+│       └── deploy-environment.yml    # Reusable deploy + health check template
+├── docs/
+│   └── AZURE_DEPLOYMENT.md           # Detailed Azure & Azure DevOps setup guide
 ├── src/
 │   ├── Shared/Mango.Shared/          # Shared contracts (events, CQRS abstractions)
 │   │   ├── Abstractions/             # ICommand<T>, IQuery<T>
@@ -311,17 +320,19 @@ testDotNet/
 │   │   └── Controllers/              # POST /api/notifications
 │   └── NotificationReceiver/         # Query-side microservice (Port 5002)
 │       ├── Consumers/                # MassTransit RabbitMQ consumer
+│       ├── Data/                     # EF Core DbContext & NotificationLogEntity
 │       ├── Queries/                  # GetNotificationsQuery + Handlers
-│       ├── Services/                 # INotificationStore + in-memory impl
+│       ├── Services/                 # INotificationStore + SQLite impl (SqliteNotificationStore)
 │       └── Controllers/              # GET /api/notifications
 ├── k8s/                              # Kubernetes manifests
 ├── infra/
-│   ├── azure-pipelines.yml           # Azure DevOps CI/CD pipeline
 │   └── bicep/                        # Azure infrastructure as code
-│       ├── main.bicep
+│       ├── shared.bicep              # Shared ACR registry
+│       ├── main.bicep                # Per-environment stack (dev/prod)
 │       └── modules/
 │           ├── containerRegistry.bicep
-│           └── containerApps.bicep
+│           ├── network.bicep         # VNet required for RabbitMQ TCP ingress
+│           └── containerApps.bicep   # ACA environment, RabbitMQ & apps
 ├── docker-compose.yml                # Full stack orchestration
 └── docker-compose.override.yml       # Local dev overrides
 ```
@@ -349,6 +360,7 @@ All configuration is driven by environment variables, which override `appsetting
 | Technology | Role |
 |---|---|
 | **ASP.NET Core 9** | Web API framework for both microservices |
+| **EF Core 9 + SQLite** | Persistent event logger with Correlation ID tracking |
 | **MediatR 12** | In-process CQRS command/query dispatch |
 | **MassTransit 8** | RabbitMQ abstraction — consumers, publishers, retries |
 | **RabbitMQ 3.13** | Message broker for inter-service communication |
@@ -362,7 +374,7 @@ All configuration is driven by environment variables, which override `appsetting
 
 ## 🔮 Next Steps
 
-- [ ] **Add EF Core + SQLite** to `NotificationReceiver` for persistent storage
+- [x] **Add EF Core + SQLite** to `NotificationReceiver` for persistent storage with Correlation ID tracking
 - [ ] **Add unit tests** for command/query handlers with xUnit + Moq
 - [ ] **Add integration tests** using MassTransit's `InMemoryTestHarness`
 - [ ] **Wire up Azure DevOps** service connections and run the pipeline

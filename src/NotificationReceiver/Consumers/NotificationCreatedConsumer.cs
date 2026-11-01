@@ -34,13 +34,15 @@ public sealed class NotificationCreatedConsumer : IConsumer<NotificationCreatedE
 
         var notification = new ReceivedNotification
         {
-            Id                   = @event.Id,
-            Title                = @event.Title,
-            Message              = @event.Message,
-            Category             = @event.Category,
-            RecipientId          = @event.RecipientId,
-            OriginallyCreatedAt  = @event.CreatedAt,
-            ReceivedAt           = DateTimeOffset.UtcNow
+            Id                  = @event.Id,
+            CorrelationId       = @event.CorrelationId != Guid.Empty ? @event.CorrelationId : @event.Id,
+            Title               = @event.Title,
+            Message             = @event.Message,
+            Category            = @event.Category,
+            RecipientId         = @event.RecipientId,
+            Status              = "Received",
+            OriginallyCreatedAt = @event.CreatedAt,
+            ReceivedAt          = DateTimeOffset.UtcNow
         };
 
         await _store.AddAsync(notification, context.CancellationToken);

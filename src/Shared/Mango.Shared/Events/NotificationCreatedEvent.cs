@@ -9,6 +9,9 @@ public sealed record NotificationCreatedEvent
     /// <summary>Unique identifier for this notification.</summary>
     public Guid Id { get; init; } = Guid.NewGuid();
 
+    /// <summary>Correlation ID for tracking the event lifecycle across microservices.</summary>
+    public Guid CorrelationId { get; init; } = Guid.NewGuid();
+
     /// <summary>The notification title / subject line.</summary>
     public required string Title { get; init; }
 

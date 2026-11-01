@@ -23,6 +23,12 @@ appsettings.Development.json
 appsettings.Local.json
 *.local.json
 
+## Local runtime data (SQLite databases from local / docker-compose runs)
+data/
+*.db
+*.db-shm
+*.db-wal
+
 ## OS generated files
 .DS_Store
 Thumbs.db

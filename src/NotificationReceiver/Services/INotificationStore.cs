@@ -6,10 +6,12 @@ namespace Mango.NotificationReceiver.Services;
 public sealed record ReceivedNotification
 {
     public Guid Id { get; init; }
+    public Guid CorrelationId { get; init; }
     public required string Title { get; init; }
     public required string Message { get; init; }
     public string Category { get; init; } = "General";
     public string? RecipientId { get; init; }
+    public string Status { get; init; } = "Received";
     public DateTimeOffset ReceivedAt { get; init; } = DateTimeOffset.UtcNow;
     public DateTimeOffset OriginallyCreatedAt { get; init; }
 }
