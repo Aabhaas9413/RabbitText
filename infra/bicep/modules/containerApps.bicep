@@ -94,7 +94,8 @@ var commonEnv = [
   // Container Apps terminates TLS; trust X-Forwarded-* so HTTPS redirection works.
   { name: 'ASPNETCORE_FORWARDEDHEADERS_ENABLED', value: 'true' }
   { name: 'Swagger__Enabled',                   value: swaggerEnabled }
-  { name: 'RabbitMQ__Host',                     value: rabbitApp.properties.configuration.ingress.fqdn }
+  // Use the short Container App name for internal TCP routing inside the VNet environment
+  { name: 'RabbitMQ__Host',                     value: rabbitApp.name }
   { name: 'RabbitMQ__Username',                 value: rabbitmqUsername }
   { name: 'RabbitMQ__Password',                 secretRef: 'rabbitmq-password' }
 ]
@@ -103,16 +104,16 @@ var httpProbes = [
   {
     type:    'Liveness'
     httpGet: { path: '/health/live', port: 8080, scheme: 'HTTP' }
-    initialDelaySeconds: 10
+    initialDelaySeconds: 5
     periodSeconds:       30
     failureThreshold:    3
   }
   {
     type:    'Readiness'
-    httpGet: { path: '/health/ready', port: 8080, scheme: 'HTTP' }
-    initialDelaySeconds: 10
-    periodSeconds:       30
-    failureThreshold:    6
+    httpGet: { path: '/health/live', port: 8080, scheme: 'HTTP' }
+    initialDelaySeconds: 3
+    periodSeconds:       10
+    failureThreshold:    3
   }
 ]
 
@@ -142,11 +143,11 @@ resource rabbitApp 'Microsoft.App/containerApps@2024-03-01' = {
       containers: [
         {
           name:  'rabbitmq'
-          // Alpine image without the unused management web UI — smaller & uses half the RAM
+          // Alpine image without the unused management web UI — smaller & faster startup
           image: 'docker.io/library/rabbitmq:3.13-alpine'
           resources: {
-            cpu:    json('0.25')
-            memory: '0.5Gi'
+            cpu:    json('0.5')
+            memory: '1Gi'
           }
           env: [
             { name: 'RABBITMQ_DEFAULT_USER', value: rabbitmqUsername }

@@ -64,6 +64,7 @@ builder.Services.AddMassTransit(x =>
 
         // Auto-configure all registered consumer endpoints
         cfg.ConfigureEndpoints(ctx);
+        cfg.AutoStart = true;
     });
 });
 
@@ -89,7 +90,10 @@ if (swaggerEnabled)
     });
 }
 
-app.UseHttpsRedirection();
+if (app.Environment.IsDevelopment())
+{
+    app.UseHttpsRedirection();
+}
 app.UseAuthorization();
 app.MapControllers();
 app.MapHealthChecks("/health");

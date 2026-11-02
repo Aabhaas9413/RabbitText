@@ -44,6 +44,10 @@ builder.Services.AddMassTransit(x =>
 
         // Let MassTransit auto-configure topology (exchanges/queues) on startup
         cfg.ConfigureEndpoints(ctx);
+
+        // Sender has no consumers; AutoStart=true forces MassTransit to connect to
+        // RabbitMQ on startup so the /health/ready check reports Healthy once connected.
+        cfg.AutoStart = true;
     });
 });
 
@@ -69,7 +73,10 @@ if (swaggerEnabled)
     });
 }
 
-app.UseHttpsRedirection();
+if (app.Environment.IsDevelopment())
+{
+    app.UseHttpsRedirection();
+}
 app.UseAuthorization();
 app.MapControllers();
 app.MapHealthChecks("/health");

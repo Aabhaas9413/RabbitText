@@ -37,7 +37,7 @@ param rabbitmqPassword string
 // ─── Per-environment settings (tuned for minimal Azure cost) ─────────────────
 var envConfig = {
   dev: {
-    senderMinReplicas:  0   // Scales to 0 when idle ($0 cost); wakes on HTTP request
+    senderMinReplicas:  1
     senderMaxReplicas:  2
     swaggerEnabled:     'true'
     logRetentionInDays: 30  // 30 days is free in Log Analytics
@@ -45,7 +45,7 @@ var envConfig = {
     acaSubnetPrefix:    '10.20.0.0/23'
   }
   prod: {
-    senderMinReplicas:  0   // Scales to 0 when idle; change to 1 if you want zero cold-start
+    senderMinReplicas:  1
     senderMaxReplicas:  5
     swaggerEnabled:     'false'
     logRetentionInDays: 30  // Keep at 30 days to stay in the free retention tier

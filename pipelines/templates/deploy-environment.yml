@@ -119,9 +119,11 @@ jobs:
             wait_ready () {
               local url="$1"
               for i in $(seq 1 30); do
-                code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 "$url" || true)
-                if [[ "$code" == "200" ]]; then echo "OK  $url"; return 0; fi
-                echo "…  $url → $code (attempt $i/30)"; sleep 10
+                body=$(curl -s -w '\n%{http_code}' --max-time 15 "$url" || true)
+                code=$(echo "$body" | tail -n1)
+                msg=$(echo "$body"  | head -n -1 | tr '\n' ' ')
+                if [[ "$code" == "200" ]]; then echo "OK  $url ($msg)"; return 0; fi
+                echo "…  $url → $code ($msg) [attempt $i/30]"; sleep 10
               done
               echo "##vso[task.logissue type=error]$url never became healthy"; return 1
             }
