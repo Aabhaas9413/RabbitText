@@ -128,6 +128,15 @@ stages:
         inlineScript: |
           set -euo pipefail
 
+          echo "== Ensuring required Azure Resource Providers are registered"
+          for rp in Microsoft.ContainerRegistry Microsoft.App Microsoft.OperationalInsights Microsoft.Network; do
+            state=$(az provider show --namespace "$rp" --query registrationState -o tsv 2>/dev/null || echo "NotRegistered")
+            if [[ "$state" != "Registered" ]]; then
+              echo "Registering $rp..."
+              az provider register --namespace "$rp" --wait
+            fi
+          done
+
           echo "== Ensuring shared resource group '$(sharedResourceGroup)'"
           az group create --name "$(sharedResourceGroup)" --location "$(location)" \
             --tags project=$(projectName) scope=shared managedBy=azure-devops --output none
