@@ -34,8 +34,20 @@ All resource groups and resources are created **automatically by the pipeline** 
 | `alpha-rg-dev` & `alpha-rg-prod` | **Log Analytics Workspace** | `alpha-logs-{env}` | `PerGB2018`, 30-day retention, **0.1 GB/day cap** | Stores container console and system logs while staying 100% inside Azure's **5 GB/month free tier**. |
 | `alpha-rg-dev` & `alpha-rg-prod` | **Container Apps Environment** | `alpha-env-{env}` | `Consumption` workload profile | Serverless hosting environment shared by the 3 container apps in each environment ($0 base fee). |
 | `alpha-rg-dev` & `alpha-rg-prod` | **Container App — Sender** | `alpha-sender-{env}` | `0.25 vCPU`, `0.5 GiB` RAM, **0 → 2/5 replicas** | Stateless CQRS Command API (`POST /api/notifications`). Scales to **0 replicas ($0)** when idle and wakes on HTTP request. |
-| `alpha-rg-dev` & `alpha-rg-prod` | **Container App — Receiver** | `alpha-receiver-{env}` | `0.25 vCPU`, `0.5 GiB` RAM, **1 replica** | CQRS Query API (`GET /api/notifications`) + MassTransit RabbitMQ consumer + local SQLite store. |
-| `alpha-rg-dev` & `alpha-rg-prod` | **Container App — RabbitMQ** | `alpha-rabbitmq-{env}` | `0.25 vCPU`, `0.5 GiB` RAM, **1 replica** (`3.13-alpine`) | Internal-only AMQP message broker connecting Sender and Receiver. |
+| `alpha-rg-dev` & `alpha-rg-prod` | **Container App — Receiver** | `alpha-receiver-{env}` | `0.25 vCPU`, `0.5 GiB` RAM, **1 replica** | CQRS Query API (`GET /api/notifications`) + MassTransit consumer (RabbitMQ or Kafka) + local SQLite store. |
+| `alpha-rg-dev` & `alpha-rg-prod` | **Container App — Broker (`RabbitMQ` OR `Kafka`)** | `alpha-rabbitmq-{env}` *or* `alpha-kafka-{env}` | `0.5 vCPU`, `1 GiB` RAM, **1 replica** | Controlled by the `messagingProvider` feature flag (`RabbitMQ` or `Kafka`). Only the selected broker is deployed; the unselected one is not created (or is removed if switching). |
+
+### Switching Between RabbitMQ and Kafka (Feature Flag)
+
+Both `NotificationSender` and `NotificationReceiver` support switching between **RabbitMQ** and **Apache Kafka (KRaft mode)** via a single feature flag:
+
+1. **In Azure DevOps UI (Per-Run Dropdown)**:
+   - Click **Run pipeline** in Azure DevOps → choose **`RabbitMQ`** or **`Kafka`** from the **Dev Messaging Provider** and **Prod Messaging Provider** dropdowns!
+2. **In Pipeline YAML (Default for Automated Git Pushes)**:
+   - Edit `parameters` (`devMessagingProvider` / `prodMessagingProvider` default values) at the top of [`azure-pipelines.yml`](../azure-pipelines.yml).
+3. **In Bicep Directly**:
+   - Pass `--parameters messagingProvider=Kafka` (or `RabbitMQ`) to [`infra/bicep/main.bicep`](../infra/bicep/main.bicep).
+   - Bicep injects `Messaging__Provider` into both microservices and provisions **only** the chosen broker (`alpha-rabbitmq-{env}` on TCP port `5672` or `alpha-kafka-{env}` on TCP port `9092`), while the deployment script automatically deletes the unused broker container app so you never pay for both.
 
 ### Dev vs. Prod Environment Differences
 

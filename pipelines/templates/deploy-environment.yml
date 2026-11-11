@@ -17,13 +17,16 @@ parameters:
   type: string
 - name: variableGroup       # Library variable group containing RABBITMQ_PASSWORD
   type: string
-- name: runEndToEndTest     # POST a notification and read it back through RabbitMQ
+- name: messagingProvider   # Feature flag: RabbitMQ | Kafka (passed to main.bicep)
+  type: string
+  default: 'RabbitMQ'
+- name: runEndToEndTest     # POST a notification and read it back through the broker
   type: boolean
   default: true
 
 jobs:
 - deployment: Deploy
-  displayName: 'Bicep deploy + smoke test (${{ parameters.environmentName }})'
+  displayName: 'Bicep deploy + smoke test (${{ parameters.environmentName }} — ${{ parameters.messagingProvider }})'
   environment: ${{ parameters.adoEnvironment }}
   pool:
     vmImage: $(vmImage)
@@ -39,7 +42,7 @@ jobs:
 
         - task: AzureCLI@2
           name: deploy
-          displayName: 'Deploy infrastructure & apps'
+          displayName: 'Deploy infrastructure & apps (${{ parameters.messagingProvider }})'
           env:
             RABBITMQ_PASSWORD: $(RABBITMQ_PASSWORD)   # secrets must be mapped explicitly
           inputs:
@@ -49,11 +52,17 @@ jobs:
             inlineScript: |
               set -euo pipefail
 
-              # An undefined variable is passed through unexpanded, i.e. it starts with "$(".
+              PROVIDER="${{ parameters.messagingProvider }}"
+              # If RabbitMQ is selected, require RABBITMQ_PASSWORD; if Kafka is selected, provide a placeholder if unset.
               if [[ -z "${RABBITMQ_PASSWORD:-}" || "$RABBITMQ_PASSWORD" == '$('* ]]; then
-                echo "##vso[task.logissue type=error]RABBITMQ_PASSWORD is missing. Add it as a SECRET variable to the '${{ parameters.variableGroup }}' variable group."
-                exit 1
+                if [[ "$PROVIDER" == "RabbitMQ" ]]; then
+                  echo "##vso[task.logissue type=error]RABBITMQ_PASSWORD is missing. Add it as a SECRET variable to the '${{ parameters.variableGroup }}' variable group."
+                  exit 1
+                else
+                  RABBITMQ_PASSWORD="UnusedKafkaPlaceholder123!"
+                fi
               fi
+
               if [[ -z "$(acrName)" ]]; then
                 echo "##vso[task.logissue type=error]acrName was not passed from the CI stage."
                 exit 1
@@ -76,18 +85,20 @@ jobs:
                 --arg tag      "$(imageTag)" \
                 --arg acr      "$(acrName)" \
                 --arg acrRg    "$(sharedResourceGroup)" \
+                --arg provider "$PROVIDER" \
                 --arg rmqPass  "$RABBITMQ_PASSWORD" \
                 '{
                   "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentParameters.json#",
                   contentVersion: "1.0.0.0",
                   parameters: {
-                    environmentName:  { value: $env },
-                    location:         { value: $loc },
-                    projectName:      { value: $proj },
-                    imageTag:         { value: $tag },
-                    acrName:          { value: $acr },
-                    acrResourceGroup: { value: $acrRg },
-                    rabbitmqPassword: { value: $rmqPass }
+                    environmentName:   { value: $env },
+                    location:          { value: $loc },
+                    projectName:       { value: $proj },
+                    imageTag:          { value: $tag },
+                    acrName:           { value: $acr },
+                    acrResourceGroup:  { value: $acrRg },
+                    messagingProvider: { value: $provider },
+                    rabbitmqPassword:  { value: $rmqPass }
                   }
                 }' > "$PARAMS_FILE"
 
@@ -98,7 +109,7 @@ jobs:
                 --parameters "@$PARAMS_FILE" \
                 --no-pretty-print --result-format ResourceIdOnly || true
 
-              echo "== Deploying main.bicep (image tag $(imageTag))"
+              echo "== Deploying main.bicep (image tag $(imageTag), provider=$PROVIDER)"
               OUTPUTS=$(az deployment group create \
                 --resource-group "$RG" \
                 --name "alpha-${{ parameters.environmentName }}-$(Build.BuildId)" \
@@ -106,10 +117,22 @@ jobs:
                 --parameters "@$PARAMS_FILE" \
                 --query properties.outputs --output json)
 
+              # Clean up the unselected broker if it was deployed in a previous run so you never pay for both
+              if [[ "$PROVIDER" == "Kafka" ]]; then
+                UNUSED_BROKER="$(projectName)-rabbitmq-${{ parameters.environmentName }}"
+              else
+                UNUSED_BROKER="$(projectName)-kafka-${{ parameters.environmentName }}"
+              fi
+              if az containerapp show --resource-group "$RG" --name "$UNUSED_BROKER" >/dev/null 2>&1; then
+                echo "== Removing unused broker container app '$UNUSED_BROKER' to save cost"
+                az containerapp delete --resource-group "$RG" --name "$UNUSED_BROKER" --yes --output none || true
+              fi
+
               SENDER_FQDN=$(echo "$OUTPUTS"   | jq -r '.senderFqdn.value')
               RECEIVER_FQDN=$(echo "$OUTPUTS" | jq -r '.receiverFqdn.value')
-              echo "Sender:   https://$SENDER_FQDN"
-              echo "Receiver: https://$RECEIVER_FQDN"
+              echo "Active Provider: $PROVIDER"
+              echo "Sender:          https://$SENDER_FQDN"
+              echo "Receiver:        https://$RECEIVER_FQDN"
               echo "##vso[task.setvariable variable=senderFqdn]$SENDER_FQDN"
               echo "##vso[task.setvariable variable=receiverFqdn]$RECEIVER_FQDN"
 
@@ -136,18 +159,18 @@ jobs:
           - bash: |
               set -euo pipefail
 
-              BODY=$(jq -n --arg t "pipeline-smoke-$(Build.BuildId)" \
-                '{title: $t, message: "Azure DevOps end-to-end smoke test", category: "Smoke", recipientId: "pipeline"}')
+              BODY=$(jq -n --arg t "pipeline-smoke-$(Build.BuildId)-${{ parameters.messagingProvider }}" \
+                '{title: $t, message: "Azure DevOps end-to-end smoke test via ${{ parameters.messagingProvider }}", category: "Smoke", recipientId: "pipeline"}')
 
-              echo "== POST https://$(senderFqdn)/api/notifications"
+              echo "== POST https://$(senderFqdn)/api/notifications (via ${{ parameters.messagingProvider }})"
               ID=$(curl -fsS --max-time 15 -X POST "https://$(senderFqdn)/api/notifications" \
                      -H 'Content-Type: application/json' -d "$BODY" | jq -r '.notificationId')
               echo "Queued notification $ID"
 
-              for i in $(seq 1 18); do
+              for i in $(seq 1 24); do
                 code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 "https://$(receiverFqdn)/api/notifications/$ID" || true)
-                if [[ "$code" == "200" ]]; then echo "Receiver has notification $ID — RabbitMQ path works"; exit 0; fi
-                echo "…  not yet consumed ($code), attempt $i/18"; sleep 5
+                if [[ "$code" == "200" ]]; then echo "Receiver has notification $ID — ${{ parameters.messagingProvider }} path works"; exit 0; fi
+                echo "…  not yet consumed ($code), attempt $i/24"; sleep 5
               done
-              echo "##vso[task.logissue type=error]Notification $ID was not received via RabbitMQ"; exit 1
-            displayName: 'Smoke test: end-to-end via RabbitMQ'
+              echo "##vso[task.logissue type=error]Notification $ID was not received via ${{ parameters.messagingProvider }}"; exit 1
+            displayName: 'Smoke test: end-to-end via ${{ parameters.messagingProvider }}'

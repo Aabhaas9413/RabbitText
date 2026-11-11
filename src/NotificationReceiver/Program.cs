@@ -1,3 +1,4 @@
+using Confluent.Kafka;
 using MassTransit;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.EntityFrameworkCore;
@@ -5,8 +6,13 @@ using Alpha.NotificationReceiver.Consumers;
 using Alpha.NotificationReceiver.Data;
 using Alpha.NotificationReceiver.Queries;
 using Alpha.NotificationReceiver.Services;
+using Alpha.Shared.Events;
 
 var builder = WebApplication.CreateBuilder(args);
+
+// ─── Messaging Feature Flag (RabbitMQ | Kafka) ────────────────────────────
+var messagingProvider = builder.Configuration.GetValue<string>("Messaging:Provider") ?? "RabbitMQ";
+var useKafka = string.Equals(messagingProvider, "Kafka", StringComparison.OrdinalIgnoreCase);
 
 // ─── Controllers & API Explorer ────────────────────────────────────────────
 builder.Services.AddControllers();
@@ -17,7 +23,7 @@ builder.Services.AddSwaggerGen(options =>
     {
         Title       = "Alpha – Notification Receiver API",
         Version     = "v1",
-        Description = "CQRS Query-side microservice. Consumes notification events from RabbitMQ and exposes them via a read API."
+        Description = $"CQRS Query-side microservice. Active messaging provider: **{messagingProvider}**."
     });
     var xmlFile = $"{System.Reflection.Assembly.GetExecutingAssembly().GetName().Name}.xml";
     var xmlPath = Path.Combine(AppContext.BaseDirectory, xmlFile);
@@ -44,29 +50,68 @@ builder.Services.AddDbContext<NotificationDbContext>(options =>
 
 builder.Services.AddScoped<INotificationStore, SqliteNotificationStore>();
 
-// ─── MassTransit + RabbitMQ ───────────────────────────────────────────────
-builder.Services.AddMassTransit(x =>
+// ─── MassTransit (RabbitMQ or Kafka selected via Messaging:Provider) ──────
+if (useKafka)
 {
-    // Register our consumer — MassTransit will auto-create the queue
-    x.AddConsumer<NotificationCreatedConsumer>();
+    var kafkaServers = builder.Configuration.GetValue<string>("Kafka:BootstrapServers") ?? "localhost:9092";
+    var kafkaTopic   = builder.Configuration.GetValue<string>("Kafka:Topic") ?? "notification-created";
+    var kafkaGroupId = builder.Configuration.GetValue<string>("Kafka:GroupId") ?? "alpha-notification-receiver";
 
-    x.UsingRabbitMq((ctx, cfg) =>
+    builder.Services.AddMassTransit(x =>
     {
-        var rabbitHost = builder.Configuration.GetValue<string>("RabbitMQ:Host") ?? "localhost";
-        var rabbitUser = builder.Configuration.GetValue<string>("RabbitMQ:Username") ?? "guest";
-        var rabbitPass = builder.Configuration.GetValue<string>("RabbitMQ:Password") ?? "guest";
-
-        cfg.Host(rabbitHost, "/", h =>
+        x.UsingInMemory((ctx, cfg) =>
         {
-            h.Username(rabbitUser);
-            h.Password(rabbitPass);
+            cfg.ConfigureEndpoints(ctx);
+            cfg.AutoStart = true;
         });
 
-        // Auto-configure all registered consumer endpoints
-        cfg.ConfigureEndpoints(ctx);
-        cfg.AutoStart = true;
+        x.AddRider(rider =>
+        {
+            rider.AddConsumer<NotificationCreatedConsumer>();
+
+            rider.UsingKafka((ctx, k) =>
+            {
+                k.Host(kafkaServers);
+
+                k.TopicEndpoint<NotificationCreatedEvent>(kafkaTopic, kafkaGroupId, e =>
+                {
+                    e.AutoOffsetReset = AutoOffsetReset.Earliest;
+                    e.CreateIfMissing(t =>
+                    {
+                        t.NumPartitions     = 1;
+                        t.ReplicationFactor = 1;
+                    });
+                    e.ConfigureConsumer<NotificationCreatedConsumer>(ctx);
+                });
+            });
+        });
     });
-});
+}
+else
+{
+    builder.Services.AddMassTransit(x =>
+    {
+        // Register our consumer — MassTransit will auto-create the queue
+        x.AddConsumer<NotificationCreatedConsumer>();
+
+        x.UsingRabbitMq((ctx, cfg) =>
+        {
+            var rabbitHost = builder.Configuration.GetValue<string>("RabbitMQ:Host") ?? "localhost";
+            var rabbitUser = builder.Configuration.GetValue<string>("RabbitMQ:Username") ?? "guest";
+            var rabbitPass = builder.Configuration.GetValue<string>("RabbitMQ:Password") ?? "guest";
+
+            cfg.Host(rabbitHost, "/", h =>
+            {
+                h.Username(rabbitUser);
+                h.Password(rabbitPass);
+            });
+
+            // Auto-configure all registered consumer endpoints
+            cfg.ConfigureEndpoints(ctx);
+            cfg.AutoStart = true;
+        });
+    });
+}
 
 // ─── Health Checks ────────────────────────────────────────────────────────
 builder.Services.AddHealthChecks();
@@ -97,7 +142,7 @@ if (app.Environment.IsDevelopment())
 app.UseAuthorization();
 app.MapControllers();
 app.MapHealthChecks("/health");
-// Liveness: process is up (no dependency checks, so a RabbitMQ blip doesn't trigger restarts)
+// Liveness: process is up (no dependency checks, so a broker blip doesn't trigger restarts)
 app.MapHealthChecks("/health/live", new HealthCheckOptions { Predicate = _ => false });
 // Readiness: includes the MassTransit bus health check registered automatically
 app.MapHealthChecks("/health/ready");

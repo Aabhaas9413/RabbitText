@@ -1,7 +1,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // main.bicep — Alpha Platform, per-environment infrastructure
 // Deploys into the environment resource group (alpha-rg-dev / alpha-rg-prod):
-//   VNet → Log Analytics → Container Apps Environment → RabbitMQ, Sender, Receiver
+//   VNet → Log Analytics → Container Apps Environment → Broker (RabbitMQ OR Kafka), Sender, Receiver
 // Images are pulled from the SHARED registry deployed by shared.bicep.
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -26,7 +26,11 @@ param acrName string
 @description('Resource group that contains the shared Azure Container Registry.')
 param acrResourceGroup string
 
-@description('RabbitMQ user created on first start of the broker.')
+@description('Feature flag: selects which message broker to deploy and wire into the microservices.')
+@allowed(['RabbitMQ', 'Kafka'])
+param messagingProvider string = 'RabbitMQ'
+
+@description('RabbitMQ user created on first start of the broker (used when messagingProvider == RabbitMQ).')
 param rabbitmqUsername string = 'alpha'
 
 @description('RabbitMQ password. Supplied by the pipeline from a secret variable — never commit it.')
@@ -56,9 +60,10 @@ var envConfig = {
 var cfg = envConfig[environmentName]
 
 var tags = {
-  environment: environmentName
-  project:     projectName
-  managedBy:   'bicep'
+  environment:       environmentName
+  project:           projectName
+  messagingProvider: messagingProvider
+  managedBy:         'bicep'
 }
 
 // ─── Modules ──────────────────────────────────────────────────────────────────
@@ -84,6 +89,7 @@ module containerApps 'modules/containerApps.bicep' = {
     acrName:            acrName
     acrResourceGroup:   acrResourceGroup
     imageTag:           imageTag
+    messagingProvider:  messagingProvider
     rabbitmqUsername:   rabbitmqUsername
     rabbitmqPassword:   rabbitmqPassword
     senderMinReplicas:  cfg.senderMinReplicas
@@ -94,5 +100,7 @@ module containerApps 'modules/containerApps.bicep' = {
 }
 
 // ─── Outputs (consumed by the pipeline smoke tests) ──────────────────────────
-output senderFqdn   string = containerApps.outputs.senderFqdn
-output receiverFqdn string = containerApps.outputs.receiverFqdn
+output senderFqdn        string = containerApps.outputs.senderFqdn
+output receiverFqdn      string = containerApps.outputs.receiverFqdn
+output messagingProvider string = messagingProvider
+output brokerAppName     string = containerApps.outputs.brokerAppName

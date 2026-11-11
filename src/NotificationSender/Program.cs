@@ -1,8 +1,14 @@
 using MassTransit;
 using Alpha.NotificationSender.Commands;
+using Alpha.NotificationSender.Messaging;
+using Alpha.Shared.Events;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 
 var builder = WebApplication.CreateBuilder(args);
+
+// ─── Messaging Feature Flag (RabbitMQ | Kafka) ────────────────────────────
+var messagingProvider = builder.Configuration.GetValue<string>("Messaging:Provider") ?? "RabbitMQ";
+var useKafka = string.Equals(messagingProvider, "Kafka", StringComparison.OrdinalIgnoreCase);
 
 // ─── Controllers & API Explorer ────────────────────────────────────────────
 builder.Services.AddControllers();
@@ -13,7 +19,7 @@ builder.Services.AddSwaggerGen(options =>
     {
         Title       = "Alpha – Notification Sender API",
         Version     = "v1",
-        Description = "CQRS Command-side microservice. Accepts notification commands and publishes integration events to RabbitMQ."
+        Description = $"CQRS Command-side microservice. Active messaging provider: **{messagingProvider}**."
     });
     // Include XML doc comments
     var xmlFile = $"{System.Reflection.Assembly.GetExecutingAssembly().GetName().Name}.xml";
@@ -26,30 +32,61 @@ builder.Services.AddSwaggerGen(options =>
 builder.Services.AddMediatR(cfg =>
     cfg.RegisterServicesFromAssemblyContaining<SendNotificationCommand>());
 
-// ─── MassTransit + RabbitMQ ───────────────────────────────────────────────
-builder.Services.AddMassTransit(x =>
+// ─── MassTransit (RabbitMQ or Kafka selected via Messaging:Provider) ──────
+if (useKafka)
 {
-    // No consumers on the sender side — it only publishes
-    x.UsingRabbitMq((ctx, cfg) =>
-    {
-        var rabbitHost = builder.Configuration.GetValue<string>("RabbitMQ:Host") ?? "localhost";
-        var rabbitUser = builder.Configuration.GetValue<string>("RabbitMQ:Username") ?? "guest";
-        var rabbitPass = builder.Configuration.GetValue<string>("RabbitMQ:Password") ?? "guest";
+    var kafkaServers = builder.Configuration.GetValue<string>("Kafka:BootstrapServers") ?? "localhost:9092";
+    var kafkaTopic   = builder.Configuration.GetValue<string>("Kafka:Topic") ?? "notification-created";
 
-        cfg.Host(rabbitHost, "/", h =>
+    builder.Services.AddScoped<INotificationEventPublisher, KafkaNotificationEventPublisher>();
+
+    builder.Services.AddMassTransit(x =>
+    {
+        x.UsingInMemory((ctx, cfg) =>
         {
-            h.Username(rabbitUser);
-            h.Password(rabbitPass);
+            cfg.ConfigureEndpoints(ctx);
+            cfg.AutoStart = true;
         });
 
-        // Let MassTransit auto-configure topology (exchanges/queues) on startup
-        cfg.ConfigureEndpoints(ctx);
+        x.AddRider(rider =>
+        {
+            rider.AddProducer<NotificationCreatedEvent>(kafkaTopic);
 
-        // Sender has no consumers; AutoStart=true forces MassTransit to connect to
-        // RabbitMQ on startup so the /health/ready check reports Healthy once connected.
-        cfg.AutoStart = true;
+            rider.UsingKafka((ctx, k) =>
+            {
+                k.Host(kafkaServers);
+            });
+        });
     });
-});
+}
+else
+{
+    builder.Services.AddScoped<INotificationEventPublisher, RabbitMqNotificationEventPublisher>();
+
+    builder.Services.AddMassTransit(x =>
+    {
+        // No consumers on the sender side — it only publishes
+        x.UsingRabbitMq((ctx, cfg) =>
+        {
+            var rabbitHost = builder.Configuration.GetValue<string>("RabbitMQ:Host") ?? "localhost";
+            var rabbitUser = builder.Configuration.GetValue<string>("RabbitMQ:Username") ?? "guest";
+            var rabbitPass = builder.Configuration.GetValue<string>("RabbitMQ:Password") ?? "guest";
+
+            cfg.Host(rabbitHost, "/", h =>
+            {
+                h.Username(rabbitUser);
+                h.Password(rabbitPass);
+            });
+
+            // Let MassTransit auto-configure topology (exchanges/queues) on startup
+            cfg.ConfigureEndpoints(ctx);
+
+            // Sender has no consumers; AutoStart=true forces MassTransit to connect to
+            // RabbitMQ on startup so the /health/ready check reports Healthy once connected.
+            cfg.AutoStart = true;
+        });
+    });
+}
 
 // ─── Health Checks ────────────────────────────────────────────────────────
 builder.Services.AddHealthChecks();
@@ -80,7 +117,7 @@ if (app.Environment.IsDevelopment())
 app.UseAuthorization();
 app.MapControllers();
 app.MapHealthChecks("/health");
-// Liveness: process is up (no dependency checks, so a RabbitMQ blip doesn't trigger restarts)
+// Liveness: process is up (no dependency checks, so a broker blip doesn't trigger restarts)
 app.MapHealthChecks("/health/live", new HealthCheckOptions { Predicate = _ => false });
 // Readiness: includes the MassTransit bus health check registered automatically
 app.MapHealthChecks("/health/ready");

@@ -4,11 +4,28 @@
 #   PR to main  : CI only (build, test, Bicep lint, Docker build — no push)
 #   Push to main: CI → push images → Deploy DEV → [manual approval] → Deploy PROD
 #
-# The SAME image tag (build id) built in CI is promoted to dev and then prod.
-# One-time Azure DevOps setup is documented in docs/AZURE_DEPLOYMENT.md.
+# Feature flag: choose 'RabbitMQ' or 'Kafka' per environment via the pipeline
+# parameters below (shown as a dropdown when you click "Run pipeline" in Azure DevOps).
 # ─────────────────────────────────────────────────────────────────────────────
 
 name: $(Date:yyyyMMdd)$(Rev:.r)
+
+parameters:
+- name: devMessagingProvider
+  displayName: 'Dev Messaging Provider (Feature Flag)'
+  type: string
+  default: 'RabbitMQ'
+  values:
+  - RabbitMQ
+  - Kafka
+
+- name: prodMessagingProvider
+  displayName: 'Prod Messaging Provider (Feature Flag)'
+  type: string
+  default: 'RabbitMQ'
+  values:
+  - RabbitMQ
+  - Kafka
 
 trigger:
   batch: true
@@ -176,7 +193,7 @@ stages:
 # STAGE 2 — Deploy DEV (automatic on main)
 # ═════════════════════════════════════════════════════════════════════════════
 - stage: Deploy_Dev
-  displayName: 'Deploy → dev'
+  displayName: 'Deploy → dev (${{ parameters.devMessagingProvider }})'
   dependsOn: CI
   condition: and(succeeded(), ne(variables['Build.Reason'], 'PullRequest'), eq(variables['Build.SourceBranch'], 'refs/heads/main'))
   variables:
@@ -184,17 +201,18 @@ stages:
   jobs:
   - template: pipelines/templates/deploy-environment.yml
     parameters:
-      environmentName: dev
-      adoEnvironment:  alpha-dev
-      resourceGroup:   alpha-rg-dev
-      variableGroup:   alpha-dev
-      runEndToEndTest: true
+      environmentName:   dev
+      adoEnvironment:    alpha-dev
+      resourceGroup:     alpha-rg-dev
+      variableGroup:     alpha-dev
+      messagingProvider: ${{ parameters.devMessagingProvider }}
+      runEndToEndTest:   true
 
 # ═════════════════════════════════════════════════════════════════════════════
 # STAGE 3 — Deploy PROD (waits for approval on the 'alpha-prod' environment)
 # ═════════════════════════════════════════════════════════════════════════════
 - stage: Deploy_Prod
-  displayName: 'Deploy → prod'
+  displayName: 'Deploy → prod (${{ parameters.prodMessagingProvider }})'
   dependsOn:
   - CI
   - Deploy_Dev
@@ -204,8 +222,9 @@ stages:
   jobs:
   - template: pipelines/templates/deploy-environment.yml
     parameters:
-      environmentName: prod
-      adoEnvironment:  alpha-prod
-      resourceGroup:   alpha-rg-prod
-      variableGroup:   alpha-prod
-      runEndToEndTest: false   # health checks only — don't write test data into prod
+      environmentName:   prod
+      adoEnvironment:    alpha-prod
+      resourceGroup:     alpha-rg-prod
+      variableGroup:     alpha-prod
+      messagingProvider: ${{ parameters.prodMessagingProvider }}
+      runEndToEndTest:   false   # health checks only — don't write test data into prod
