@@ -1,6 +1,6 @@
-# 🐇 Alpha — CQRS Notification Platform
+# ⚡ Alpha — CQRS Notification Platform (RabbitMQ & Kafka)
 
-A production-grade **CQRS microservices** architecture built on **.NET 9**, **MediatR**, **MassTransit**, and **RabbitMQ**. Two independent microservices communicate asynchronously through RabbitMQ, fully containerised with Docker Compose and ready for Kubernetes and Azure Container Apps.
+A production-grade **CQRS microservices** architecture built on **.NET 9**, **MediatR**, **MassTransit**, **RabbitMQ**, and **Apache Kafka**. Two independent microservices communicate asynchronously through a pluggable message broker (**RabbitMQ** or **Kafka**, selectable via a feature flag in Bicep, Azure DevOps Pipelines, or environment variables), fully containerised with Docker Compose and deployed to **Azure Container Apps**.
 
 ---
 
@@ -17,21 +17,24 @@ A production-grade **CQRS microservices** architecture built on **.NET 9**, **Me
 │                                                                   │
 │  HTTP → Controller → MediatR → SendNotificationCommandHandler    │
 │                                       │                          │
-│                                       │ IPublishEndpoint.Publish │
-└───────────────────────────────────────┼──────────────────────────┘
-                                        │
-                                        ▼
-                          ┌─────────────────────────┐
-                          │      RabbitMQ Broker      │
-                          │  Exchange: notification-  │
-                          │  created-event            │
-                          └────────────┬──────────────┘
-                                       │ AMQP consume
-                                       ▼
+│                                       ▼                          │
+│                     INotificationEventPublisher                  │
+│             (selected via Messaging__Provider feature flag)      │
+└────────────────────┬────────────────────────────────┬────────────┘
+                     │ RabbitMQ                       │ Kafka
+                     ▼                                ▼
+       ┌──────────────────────────┐     ┌──────────────────────────┐
+       │     RabbitMQ Broker      │     │   Apache Kafka (KRaft)   │
+       │  Exchange: Notification- │     │  Topic: notification-    │
+       │  CreatedEvent (AMQP)     │     │  created (Port 9092)     │
+       └─────────────┬────────────┘     └─────────────┬────────────┘
+                     └──────────────┬─────────────────┘
+                                    │ MassTransit Consume
+                                    ▼
 ┌─────────────────────────────────────────────────────────────────┐
 │         NotificationReceiver  (Query Side — Port 5002)           │
 │                                                                   │
-│  MassTransit Consumer → INotificationStore (EF Core + SQLite)     │
+│  NotificationCreatedConsumer → INotificationStore (EF + SQLite)   │
 │                                                                   │
 │  GET /api/notifications → MediatR → GetAllNotificationsHandler   │
 └──────────────────────────────────────────────────────────────────┘
@@ -44,7 +47,8 @@ A production-grade **CQRS microservices** architecture built on **.NET 9**, **Me
 | **Pattern** | Command side | Query side |
 | **Accepts** | `POST /api/notifications` | `GET /api/notifications` |
 | **MediatR** | `ICommand<Guid>` | `IQuery<IReadOnlyList<...>>` |
-| **RabbitMQ role** | Publisher | Consumer |
+| **Broker role** | Publisher (`INotificationEventPublisher`) | Consumer (`NotificationCreatedConsumer`) |
+| **Supported Brokers** | **RabbitMQ** (`IPublishEndpoint`) or **Kafka** (`ITopicProducer<T>`) | **RabbitMQ** queue or **Kafka** topic (`MassTransit.Kafka`) |
 | **State** | Stateless | EF Core + SQLite persistent log |
 
 ---
@@ -57,13 +61,13 @@ A production-grade **CQRS microservices** architecture built on **.NET 9**, **Me
 | [Docker Desktop](https://www.docker.com/products/docker-desktop/) | 4.x | [Download](https://www.docker.com/products/docker-desktop/) |
 | [Git](https://git-scm.com/) | 2.x | `winget install Git.Git` |
 
-> **Note**: Docker Desktop includes Docker Compose v2. You do **not** need to install RabbitMQ separately — it runs inside Docker.
+> **Note**: Docker Desktop includes Docker Compose v2. Both RabbitMQ and Apache Kafka (KRaft) run inside Docker.
 
 ---
 
-## 🐇 Option A — Local Docker Setup (Recommended)
+## 🐳 Option A — Local Docker Setup (Recommended)
 
-This is the easiest way to run the full stack. Everything — RabbitMQ, both microservices — starts with one command.
+Everything — RabbitMQ, Kafka (KRaft), and both microservices — is configured in [`docker-compose.yml`](docker-compose.yml).
 
 ### 1. Clone the repository
 
@@ -72,18 +76,17 @@ git clone <your-repo-url>
 cd testDotNet
 ```
 
-### 2. Start the full stack
+### 2. Start the full stack (RabbitMQ or Kafka)
 
-```bash
+**Mode 1 — RabbitMQ (default):**
+```powershell
 docker-compose up --build
 ```
 
-This will:
-- Pull the `rabbitmq:3.13-management` image
-- Build both microservice images
-- Start RabbitMQ (with health checks) then the two services
-
-**First run takes ~2–3 minutes** while Docker pulls base images and compiles .NET projects.
+**Mode 2 — Apache Kafka (via feature flag):**
+```powershell
+$env:MESSAGING_PROVIDER="Kafka"; docker-compose up --build
+```
 
 ### 3. Verify everything is running
 
@@ -91,26 +94,23 @@ This will:
 docker-compose ps
 ```
 
-You should see all three containers as `healthy`:
-
 ```
-NAME                        STATUS      PORTS
-alpha-rabbitmq              healthy     0.0.0.0:5672->5672, 0.0.0.0:15672->15672
-alpha-notification-sender   healthy     0.0.0.0:5001->8080
-alpha-notification-receiver healthy     0.0.0.0:5002->8080
+NAME                          STATUS      PORTS
+alpha-rabbitmq                healthy     0.0.0.0:5672->5672, 0.0.0.0:15672->15672
+alpha-kafka                   running     0.0.0.0:9092->9092
+alpha-notification-sender     healthy     0.0.0.0:5001->8080
+alpha-notification-receiver   healthy     0.0.0.0:5002->8080
 ```
 
 ### 4. Access the services
 
 | Service | URL | Description |
 |---|---|---|
-| NotificationSender API | http://localhost:5001/swagger | Swagger UI (Command side) |
-| NotificationReceiver API | http://localhost:5002/swagger | Swagger UI (Query side) |
-| **RabbitMQ Management UI** | **http://localhost:15672** | Queues, exchanges, message rates |
-| Sender health check | http://localhost:5001/health | Returns `Healthy` |
-| Receiver health check | http://localhost:5002/health | Returns `Healthy` |
-
-> **RabbitMQ credentials**: `guest` / `guest`
+| NotificationSender API | http://localhost:5001/swagger | Swagger UI (Command side — shows active broker) |
+| NotificationReceiver API | http://localhost:5002/swagger | Swagger UI (Query side — shows active broker) |
+| **RabbitMQ Management UI** | **http://localhost:15672** | Queues, exchanges, message rates (`guest` / `guest`) |
+| Sender readiness check | http://localhost:5001/health/ready | Returns `Healthy` |
+| Receiver readiness check | http://localhost:5002/health/ready | Returns `Healthy` |
 
 ### 5. Send your first notification
 
@@ -120,7 +120,7 @@ curl -X POST http://localhost:5001/api/notifications \
   -H "Content-Type: application/json" \
   -d '{
     "title": "Hello from CQRS!",
-    "message": "This notification travelled through RabbitMQ.",
+    "message": "This notification travelled through the configured broker.",
     "category": "Demo",
     "recipientId": "user-001"
   }'
@@ -141,15 +141,17 @@ Expected response (`202 Accepted`):
 curl http://localhost:5002/api/notifications
 ```
 
-You'll see the notification the Receiver consumed from RabbitMQ:
+You'll see the notification the Receiver consumed from RabbitMQ or Kafka:
 ```json
 [
   {
     "id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+    "correlationId": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
     "title": "Hello from CQRS!",
-    "message": "This notification travelled through RabbitMQ.",
+    "message": "This notification travelled through the configured broker.",
     "category": "Demo",
     "recipientId": "user-001",
+    "status": "Received",
     "receivedAt": "2026-09-14T22:00:01Z",
     "originallyCreatedAt": "2026-09-14T22:00:00Z"
   }
@@ -177,41 +179,16 @@ docker-compose down -v       # Stop containers AND delete RabbitMQ/SQLite volume
 
 ---
 
-## 🐇 Option B — Install RabbitMQ Directly (Windows)
+## 💻 Option B — Run Brokers via Docker, Run .NET Services Locally
 
-If you prefer to run RabbitMQ natively (without Docker) and run the .NET services from Visual Studio or the CLI:
+Useful when you want Docker for RabbitMQ/Kafka but prefer to debug the .NET microservices in Visual Studio or via `dotnet run`.
 
-### Step 1: Install Erlang (RabbitMQ dependency)
-
-1. Download **Erlang/OTP 26** from https://www.erlang.org/downloads
-2. Run the installer as Administrator
-3. Verify: `erl -eval 'erlang:display(erlang:system_info(otp_release)), halt().' -noshell`
-
-### Step 2: Install RabbitMQ
-
-1. Download the **RabbitMQ Windows installer** from https://www.rabbitmq.com/install-windows.html
-2. Run the installer (it installs as a Windows Service automatically)
-3. Verify the service is running:
-   ```powershell
-   Get-Service -Name RabbitMQ
-   ```
-
-### Step 3: Enable the Management Plugin
-
-Open a command prompt **as Administrator**:
-```cmd
-"C:\Program Files\RabbitMQ Server\rabbitmq_server-3.13.x\sbin\rabbitmq-plugins.bat" enable rabbitmq_management
+```bash
+# Start RabbitMQ (or Kafka) in Docker
+docker-compose up rabbitmq kafka
 ```
 
-Then restart the service:
-```powershell
-Restart-Service RabbitMQ
-```
-
-Access the management UI at: **http://localhost:15672** (guest / guest)
-
-### Step 4: Run the microservices locally
-
+Then in two terminals:
 ```bash
 # Terminal 1 — Notification Sender
 cd src/NotificationSender
@@ -222,34 +199,17 @@ cd src/NotificationReceiver
 dotnet run
 ```
 
-Both services default to `localhost` for RabbitMQ (configured in `appsettings.Development.json`).
-
----
-
-## 🐇 Option C — RabbitMQ via Docker only (services run locally)
-
-Useful when you want Docker for RabbitMQ but prefer to debug .NET services in Visual Studio.
-
-```bash
-# Start only RabbitMQ
-docker-compose up rabbitmq
-```
-
-Then run the two services from Visual Studio or the CLI as in Option B Step 4.
+To switch local `dotnet run` to **Kafka**, set `"Provider": "Kafka"` under `"Messaging"` in `appsettings.json` (or set `$env:Messaging__Provider="Kafka"`).
 
 ---
 
 ## 🚀 Kubernetes Deployment
 
-### Prerequisites
-- [kubectl](https://kubernetes.io/docs/tasks/tools/) configured for your cluster
-- [Docker Desktop Kubernetes](https://docs.docker.com/desktop/kubernetes/) or a cloud cluster (AKS, EKS, GKE)
-
 ### Deploy
 
 ```bash
-# 1. Create the namespace first
-kubectl apply -f k8s/receiver-deployment.yaml  # Contains the Namespace definition
+# 1. Create the namespace and Receiver deployment
+kubectl apply -f k8s/receiver-deployment.yaml
 
 # 2. Deploy RabbitMQ
 kubectl apply -f k8s/rabbitmq-deployment.yaml
@@ -266,28 +226,29 @@ kubectl get pods -n alpha
 kubectl get services -n alpha
 ```
 
-### Port-forward for local testing
-
-```bash
-# Sender
-kubectl port-forward service/notification-sender 5001:80 -n alpha
-
-# Receiver
-kubectl port-forward service/notification-receiver 5002:80 -n alpha
-
-# RabbitMQ Management UI
-kubectl port-forward service/rabbitmq 15672:15672 -n alpha
-```
-
 ---
 
-## ☁️ Azure Deployment (Bicep + Azure DevOps)
+## ☁️ Azure Deployment (Bicep + Azure DevOps + Broker Feature Flag)
 
-Deploy to Azure across **dev** and **prod** environments using Azure Pipelines and Bicep.
+Deploy to Azure across **dev** and **prod** environments using Azure Pipelines and Bicep, with a per-environment **feature flag** (`messagingProvider`: `RabbitMQ` or `Kafka`).
 
-For the comprehensive step-by-step setup guide, resource inventory, and cost breakdown, see [`docs/AZURE_DEPLOYMENT.md`](docs/AZURE_DEPLOYMENT.md).
+For the comprehensive step-by-step setup guide, resource inventory, and minimal-cost breakdown, see [`docs/AZURE_DEPLOYMENT.md`](docs/AZURE_DEPLOYMENT.md).
 
-### Quick Automated Setup
+### Switching Between RabbitMQ and Kafka in Azure
+
+1. **In Azure DevOps UI (Per-Run Dropdown)**:
+   - Go to **Pipelines → select your pipeline → Run pipeline**.
+   - Choose **`RabbitMQ`** or **`Kafka`** from the **Dev Messaging Provider (Feature Flag)** and **Prod Messaging Provider (Feature Flag)** dropdowns.
+   - Bicep provisions **only** the selected broker (`alpha-rabbitmq-{env}` or `alpha-kafka-{env}`), injects `Messaging__Provider` into both microservices, and automatically deletes the unselected broker container app so you never pay for both.
+2. **In Bicep Directly**:
+   ```bash
+   az deployment group create \
+     --resource-group alpha-rg-dev \
+     --template-file infra/bicep/main.bicep \
+     --parameters environmentName=dev messagingProvider=Kafka ...
+   ```
+
+### Quick Automated Azure DevOps Setup
 
 Run [`scripts/setup-azure-devops.ps1`](scripts/setup-azure-devops.ps1) to register Azure resource providers, push to Azure Repos, and create the `alpha-dev` & `alpha-prod` variable groups, environments, and pipeline automatically:
 
@@ -301,7 +262,7 @@ az login
 ```
 
 Then in Azure DevOps:
-1. **Project Settings → Service Connections**: Create an Azure Resource Manager (Workload Identity Federation) connection named `alpha-azure`.
+1. **Project Settings → Service Connections**: Create an Azure Resource Manager (Workload Identity Federation) connection named `alpha-azure` at **Subscription** scope.
 2. **Pipelines → Environments → `alpha-prod`**: Add an **Approval check** for manual production gating, then run the pipeline (`azure-pipelines.yml`).
 
 ---
@@ -310,10 +271,10 @@ Then in Azure DevOps:
 
 ```
 testDotNet/
-├── azure-pipelines.yml               # Multi-stage CI/CD pipeline (Build → Dev → Prod)
+├── azure-pipelines.yml               # Multi-stage CI/CD pipeline (with RabbitMQ/Kafka feature flag)
 ├── pipelines/
 │   └── templates/
-│       └── deploy-environment.yml    # Reusable deploy + health check template
+│       └── deploy-environment.yml    # Reusable deploy + E2E smoke test template
 ├── scripts/
 │   └── setup-azure-devops.ps1        # One-shot Azure & Azure DevOps setup script
 ├── docs/
@@ -324,9 +285,10 @@ testDotNet/
 │   │   └── Events/                   # NotificationCreatedEvent
 │   ├── NotificationSender/           # Command-side microservice (Port 5001)
 │   │   ├── Commands/                 # SendNotificationCommand + Handler
+│   │   ├── Messaging/                # INotificationEventPublisher (RabbitMQ & Kafka impls)
 │   │   └── Controllers/              # POST /api/notifications
 │   └── NotificationReceiver/         # Query-side microservice (Port 5002)
-│       ├── Consumers/                # MassTransit RabbitMQ consumer
+│       ├── Consumers/                # MassTransit consumer (works with RabbitMQ & Kafka)
 │       ├── Data/                     # EF Core DbContext & NotificationLogEntity
 │       ├── Queries/                  # GetNotificationsQuery + Handlers
 │       ├── Services/                 # INotificationStore + SQLite impl (SqliteNotificationStore)
@@ -335,12 +297,12 @@ testDotNet/
 ├── infra/
 │   └── bicep/                        # Azure infrastructure as code
 │       ├── shared.bicep              # Shared ACR registry
-│       ├── main.bicep                # Per-environment stack (dev/prod)
+│       ├── main.bicep                # Per-environment stack (dev/prod + messagingProvider flag)
 │       └── modules/
 │           ├── containerRegistry.bicep
-│           ├── network.bicep         # VNet required for RabbitMQ TCP ingress
-│           └── containerApps.bicep   # ACA environment, RabbitMQ & apps
-├── docker-compose.yml                # Full stack orchestration
+│           ├── network.bicep         # VNet required for internal TCP ingress (5672 / 9092)
+│           └── containerApps.bicep   # ACA environment, RabbitMQ/Kafka broker & apps
+├── docker-compose.yml                # Full stack orchestration (RabbitMQ + Kafka)
 └── docker-compose.override.yml       # Local dev overrides
 ```
 
@@ -352,13 +314,18 @@ All configuration is driven by environment variables, which override `appsetting
 
 | Variable | Default | Description |
 |---|---|---|
-| `RabbitMQ__Host` | `localhost` | RabbitMQ hostname |
+| `Messaging__Provider` | `RabbitMQ` | **Feature flag**: `RabbitMQ` or `Kafka` |
+| `RabbitMQ__Host` | `localhost` | RabbitMQ hostname (used when `Messaging__Provider=RabbitMQ`) |
 | `RabbitMQ__Username` | `guest` | RabbitMQ username |
 | `RabbitMQ__Password` | `guest` | RabbitMQ password |
-| `ASPNETCORE_ENVIRONMENT` | `Development` | Controls Swagger visibility |
+| `Kafka__BootstrapServers` | `localhost:9092` | Kafka bootstrap servers (used when `Messaging__Provider=Kafka`) |
+| `Kafka__Topic` | `notification-created` | Kafka topic name for notification events |
+| `Kafka__GroupId` | `alpha-notification-receiver` | Kafka consumer group ID on the Receiver |
+| `Swagger__Enabled` | `false` (`true` in dev) | Enables Swagger UI in non-Development environments |
+| `ASPNETCORE_ENVIRONMENT` | `Development` | Runtime environment (`Development`, `Docker`, `Production`) |
 | `ASPNETCORE_HTTP_PORTS` | `8080` | HTTP port inside the container |
 
-> ℹ️ Docker uses `__` (double underscore) to separate nested config sections, which ASP.NET Core automatically maps to `:` in the config hierarchy.
+> ℹ️ Docker and Azure Container Apps use `__` (double underscore) to separate nested config sections, which ASP.NET Core automatically maps to `:` in the config hierarchy.
 
 ---
 
@@ -369,22 +336,22 @@ All configuration is driven by environment variables, which override `appsetting
 | **ASP.NET Core 9** | Web API framework for both microservices |
 | **EF Core 9 + SQLite** | Persistent event logger with Correlation ID tracking |
 | **MediatR 12** | In-process CQRS command/query dispatch |
-| **MassTransit 8** | RabbitMQ abstraction — consumers, publishers, retries |
-| **RabbitMQ 3.13** | Message broker for inter-service communication |
+| **MassTransit 8 + Kafka Rider** | Unified messaging abstraction over RabbitMQ and Apache Kafka |
+| **RabbitMQ 3.13** | AMQP message broker option (`Messaging__Provider=RabbitMQ`) |
+| **Apache Kafka 3.8 (KRaft)** | Event streaming broker option (`Messaging__Provider=Kafka`, ZooKeeper-less) |
 | **Docker Compose** | Local multi-service orchestration |
-| **Kubernetes** | Production container orchestration |
-| **Bicep** | Azure infrastructure as code |
+| **Bicep** | Azure infrastructure as code with conditional broker deployment |
 | **Azure Container Apps** | Serverless container hosting target |
-| **Azure DevOps** | CI/CD pipeline |
+| **Azure DevOps** | Multi-stage CI/CD pipeline (`dev` + `prod`) |
 
 ---
 
 ## 🔮 Next Steps
 
 - [x] **Add EF Core + SQLite** to `NotificationReceiver` for persistent storage with Correlation ID tracking
+- [x] **Wire up Azure DevOps** multi-stage CI/CD pipeline (`dev` + `prod`) and Bicep IaC
+- [x] **Add generic RabbitMQ / Kafka feature flag** across microservices, Bicep, and Azure Pipelines
 - [ ] **Add unit tests** for command/query handlers with xUnit + Moq
 - [ ] **Add integration tests** using MassTransit's `InMemoryTestHarness`
-- [ ] **Wire up Azure DevOps** service connections and run the pipeline
 - [ ] **Add more notification types** (Email, SMS, Push) as additional events
-- [ ] **Add a Saga** for multi-step notification workflows (e.g. send → track → confirm)
-- [ ] **Replace in-memory store** with SQL Server and scale Receiver to multiple replicas
+- [ ] **Replace SQLite store** with Azure SQL / PostgreSQL to scale Receiver to multiple replicas
