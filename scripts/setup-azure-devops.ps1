@@ -153,5 +153,7 @@ Write-Host "  1. Project Settings -> Service connections -> New service connecti
 Write-Host "     -> Workload identity federation (automatic) -> Scope: Subscription -> Name: 'alpha-azure'"
 Write-Host "     -> Check 'Grant access permission to all pipelines'."
 Write-Host "  2. Pipelines -> Environments -> 'alpha-prod' -> Approvals and checks -> + -> Approvals"
-Write-Host "     -> Add yourself as approver, then run the '$PipelineName' pipeline!"
+Write-Host "     -> Add yourself as approver."
+Write-Host "  3. Pipelines -> '$PipelineName' -> Run pipeline -> pick RabbitMQ or Kafka for Dev and Prod (required) -> Run."
+Write-Host "     (Pushes to main do NOT deploy automatically: the pipeline uses 'trigger: none'.)"
 

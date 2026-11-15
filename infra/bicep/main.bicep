@@ -26,9 +26,9 @@ param acrName string
 @description('Resource group that contains the shared Azure Container Registry.')
 param acrResourceGroup string
 
-@description('Feature flag: selects which message broker to deploy and wire into the microservices.')
+@description('Feature flag (REQUIRED, no default): selects which message broker to deploy and wire into the microservices.')
 @allowed(['RabbitMQ', 'Kafka'])
-param messagingProvider string = 'RabbitMQ'
+param messagingProvider string
 
 @description('RabbitMQ user created on first start of the broker (used when messagingProvider == RabbitMQ).')
 param rabbitmqUsername string = 'alpha'

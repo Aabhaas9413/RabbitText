@@ -1,43 +1,42 @@
 # ─────────────────────────────────────────────────────────────────────────────
 # azure-pipelines.yml — Alpha CQRS Platform (Azure DevOps, multi-stage)
 #
-#   PR to main  : CI only (build, test, Bicep lint, Docker build — no push)
-#   Push to main: CI → push images → Deploy DEV → [manual approval] → Deploy PROD
+#   PR to main          : CI only (build, test, Bicep lint, Docker build — no push)
+#   Push to main        : nothing runs automatically (trigger: none)
+#   "Run pipeline" (UI) : you MUST pick RabbitMQ / Kafka for dev & prod, then
+#                         CI → push images → Deploy DEV → [manual approval] → Deploy PROD
 #
-# Feature flag: choose 'RabbitMQ' or 'Kafka' per environment via the pipeline
-# parameters below (shown as a dropdown when you click "Run pipeline" in Azure DevOps).
+# Feature flag: the two parameters below are shown as dropdowns every time you
+# click "Run pipeline". They default to a placeholder ('-- choose --'); a
+# deployment run fails fast in the 'Validate feature flags' job until you pick
+# a real broker, so nothing is ever deployed with an implicit default.
 # ─────────────────────────────────────────────────────────────────────────────
 
 name: $(Date:yyyyMMdd)$(Rev:.r)
 
 parameters:
 - name: devMessagingProvider
-  displayName: 'Dev Messaging Provider (Feature Flag)'
+  displayName: 'Dev Messaging Provider (Feature Flag) — REQUIRED'
   type: string
-  default: 'RabbitMQ'
+  default: '-- choose --'
   values:
+  - '-- choose --'
   - RabbitMQ
   - Kafka
 
 - name: prodMessagingProvider
-  displayName: 'Prod Messaging Provider (Feature Flag)'
+  displayName: 'Prod Messaging Provider (Feature Flag) — REQUIRED'
   type: string
-  default: 'RabbitMQ'
+  default: '-- choose --'
   values:
+  - '-- choose --'
   - RabbitMQ
   - Kafka
 
-trigger:
-  batch: true
-  branches:
-    include:
-      - main
-  paths:
-    exclude:
-      - README.md
-      - docs/*
-      - scripts/*
-      - k8s/*
+# No CI/CD on push: deployments only start from "Run pipeline", where the
+# broker dropdowns are shown. PR validation still runs CI (see 'pr' below and
+# the branch policy on main for Azure Repos).
+trigger: none
 
 pr:
   branches:
@@ -63,6 +62,31 @@ stages:
 - stage: CI
   displayName: 'Build & Test'
   jobs:
+
+  # ── Deployment runs: refuse to continue until a broker is chosen ───────────
+  - job: ValidateFlags
+    displayName: 'Validate feature flags'
+    condition: ne(variables['Build.Reason'], 'PullRequest')
+    pool:
+      vmImage: $(vmImage)
+    steps:
+    - checkout: none
+    - bash: |
+        set -euo pipefail
+        DEV='${{ parameters.devMessagingProvider }}'
+        PROD='${{ parameters.prodMessagingProvider }}'
+        echo "Dev  messaging provider : $DEV"
+        echo "Prod messaging provider : $PROD"
+        ok=true
+        for pair in "Dev:$DEV" "Prod:$PROD"; do
+          name="${pair%%:*}"; value="${pair#*:}"
+          if [[ "$value" != "RabbitMQ" && "$value" != "Kafka" ]]; then
+            echo "##vso[task.logissue type=error]$name Messaging Provider was not chosen. Click 'Run pipeline' and pick RabbitMQ or Kafka."
+            ok=false
+          fi
+        done
+        [[ "$ok" == "true" ]]
+      displayName: 'Require RabbitMQ / Kafka selection'
 
   - job: Build
     displayName: 'dotnet build + test, Bicep lint'
@@ -127,7 +151,9 @@ stages:
   # ── main: ensure shared ACR exists, then build + push once ─────────────────
   - job: Images
     displayName: 'Docker build & push to ACR'
-    dependsOn: Build
+    dependsOn:
+    - ValidateFlags
+    - Build
     condition: and(succeeded(), ne(variables['Build.Reason'], 'PullRequest'), eq(variables['Build.SourceBranch'], 'refs/heads/main'))
     pool:
       vmImage: $(vmImage)
@@ -190,7 +216,7 @@ stages:
           echo "##vso[task.setvariable variable=acrName;isOutput=true]$ACR_NAME"
 
 # ═════════════════════════════════════════════════════════════════════════════
-# STAGE 2 — Deploy DEV (automatic on main)
+# STAGE 2 — Deploy DEV (runs after CI on a manual "Run pipeline" from main)
 # ═════════════════════════════════════════════════════════════════════════════
 - stage: Deploy_Dev
   displayName: 'Deploy → dev (${{ parameters.devMessagingProvider }})'

@@ -17,9 +17,12 @@ parameters:
   type: string
 - name: variableGroup       # Library variable group containing RABBITMQ_PASSWORD
   type: string
-- name: messagingProvider   # Feature flag: RabbitMQ | Kafka (passed to main.bicep)
+- name: messagingProvider   # Feature flag: RabbitMQ | Kafka (passed to main.bicep) — required, no default
   type: string
-  default: 'RabbitMQ'
+  values:
+  - RabbitMQ
+  - Kafka
+  - '-- choose --'          # placeholder from azure-pipelines.yml; rejected by the 'Validate feature flags' job
 - name: runEndToEndTest     # POST a notification and read it back through the broker
   type: boolean
   default: true

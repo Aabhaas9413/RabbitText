@@ -236,11 +236,13 @@ For the comprehensive step-by-step setup guide, resource inventory, and minimal-
 
 ### Switching Between RabbitMQ and Kafka in Azure
 
-1. **In Azure DevOps UI (Per-Run Dropdown)**:
+Deployments are **manual only** (`trigger: none`): pushing to `main` does not deploy, and pull requests run CI only. Every deployment requires an explicit broker choice.
+
+1. **In Azure DevOps UI (Required Per-Run Dropdown)**:
    - Go to **Pipelines → select your pipeline → Run pipeline**.
-   - Choose **`RabbitMQ`** or **`Kafka`** from the **Dev Messaging Provider (Feature Flag)** and **Prod Messaging Provider (Feature Flag)** dropdowns.
+   - Choose **`RabbitMQ`** or **`Kafka`** from the **Dev Messaging Provider** and **Prod Messaging Provider** dropdowns (both default to `-- choose --`; the run fails in the *Validate feature flags* job until you pick one).
    - Bicep provisions **only** the selected broker (`alpha-rabbitmq-{env}` or `alpha-kafka-{env}`), injects `Messaging__Provider` into both microservices, and automatically deletes the unselected broker container app so you never pay for both.
-2. **In Bicep Directly**:
+2. **In Bicep Directly** (`messagingProvider` has no default — the Azure CLI prompts for it if omitted):
    ```bash
    az deployment group create \
      --resource-group alpha-rg-dev \
