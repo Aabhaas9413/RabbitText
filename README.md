@@ -98,6 +98,7 @@ docker-compose ps
 NAME                          STATUS      PORTS
 alpha-rabbitmq                healthy     0.0.0.0:5672->5672, 0.0.0.0:15672->15672
 alpha-kafka                   running     0.0.0.0:9092->9092
+alpha-kafka-ui                running     0.0.0.0:8085->8080
 alpha-notification-sender     healthy     0.0.0.0:5001->8080
 alpha-notification-receiver   healthy     0.0.0.0:5002->8080
 ```
@@ -109,6 +110,7 @@ alpha-notification-receiver   healthy     0.0.0.0:5002->8080
 | NotificationSender API | http://localhost:5001/swagger | Swagger UI (Command side — shows active broker) |
 | NotificationReceiver API | http://localhost:5002/swagger | Swagger UI (Query side — shows active broker) |
 | **RabbitMQ Management UI** | **http://localhost:15672** | Queues, exchanges, message rates (`guest` / `guest`) |
+| **Kafka UI** | **http://localhost:8085** | Kafka topics, messages (`notification-created`), and consumer group offsets |
 | Sender readiness check | http://localhost:5001/health/ready | Returns `Healthy` |
 | Receiver readiness check | http://localhost:5002/health/ready | Returns `Healthy` |
 
@@ -304,7 +306,7 @@ testDotNet/
 │           ├── containerRegistry.bicep
 │           ├── network.bicep         # VNet required for internal TCP ingress (5672 / 9092)
 │           └── containerApps.bicep   # ACA environment, RabbitMQ/Kafka broker & apps
-├── docker-compose.yml                # Full stack orchestration (RabbitMQ + Kafka)
+├── docker-compose.yml                # Full stack orchestration (RabbitMQ, Kafka + Kafka UI)
 └── docker-compose.override.yml       # Local dev overrides
 ```
 

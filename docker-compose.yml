@@ -55,6 +55,20 @@ services:
     networks:
       - alpha-network
 
+  # ── Kafka UI (Browser Dashboard for Kafka Topics & Messages) ──────────────
+  kafka-ui:
+    image: ghcr.io/kafbat/kafka-ui:latest
+    container_name: alpha-kafka-ui
+    ports:
+      - "8085:8080"
+    environment:
+      KAFKA_CLUSTERS_0_NAME: alpha-local
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:9092
+    depends_on:
+      - kafka
+    networks:
+      - alpha-network
+
   # ── Notification Sender (Command Side) ────────────────────────────────────
   notification-sender:
     build:
